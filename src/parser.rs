@@ -174,7 +174,7 @@ impl Parser {
         let end_span = self.current_span();
         let span = Span::new(
             start_span.start,
-            end_span.start,
+            end_span.end,
             start_span.line,
             start_span.column,
         );

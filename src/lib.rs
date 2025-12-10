@@ -189,16 +189,18 @@ pub fn compile(source: &str) -> JsValue {
 ///
 /// # Returns
 ///
-/// A [`JsValue`] containing:
-/// - On success: `{ "valid": true }`
+/// A [`JsValue`] containing a unified response format:
+/// - On success: `{ "status": "ok", "valid": true }`
 /// - On error: `{ "status": "error", "errors": [ ... ] }`
 ///
 /// # Example (JavaScript)
 ///
 /// ```javascript
 /// const result = validate('0: srl');
-/// if (result.valid) {
+/// if (result.status === 'ok') {
 ///     console.log('Syntax is valid');
+/// } else {
+///     console.error('Errors:', result.errors);
 /// }
 /// ```
 #[wasm_bindgen]
@@ -215,7 +217,7 @@ pub fn validate(source: &str) -> JsValue {
 
     match parser.parse_program() {
         Ok(_) => {
-            let result = serde_json::json!({ "valid": true });
+            let result = serde_json::json!({ "status": "ok", "valid": true });
             serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
         }
         Err(e) => serde_wasm_bindgen::to_value(&CompileResult::Error {

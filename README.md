@@ -142,6 +142,28 @@ a(X):sa(X+1) a(-2)      # X increments: -2→-1→0(stop)
 // C-style comments also work
 ```
 
+### Implementation Notes
+
+#### Whitespace Handling
+
+- **Agent ID**: Agent IDs must appear at the start of a line. Leading spaces/tabs before the agent ID are permitted and treated as line-start context.
+- **Function/Macro Definitions**: No whitespace is allowed between the identifier and `(` in function definitions (e.g., `f(X):...` is valid, `f (X):...` is not).
+- **Spaces**: Spaces and tabs between tokens are generally ignored except where they affect line-start detection.
+
+#### Recursion and Termination
+
+- **Maximum Recursion Depth**: The expander has a maximum recursion depth of **100** to prevent stack overflow from deeply nested macro/function calls. Exceeding this limit results in an expansion error.
+- **Numeric Termination**: When any numeric argument becomes ≤ 0, the function call returns an empty sequence (no commands). This applies to all numeric parameters in the function.
+- **Expansion Limit**: There is no explicit limit on the total number of expanded commands, but deeply recursive patterns may hit the depth limit first.
+
+#### Error Handling
+
+Compilation errors include:
+- **Line and column information** for precise error location
+- **Expected vs. found tokens** for parse errors
+- **Undefined macro/function references**
+- **Maximum recursion depth exceeded**
+
 ## Examples
 
 ### Drawing Shapes
@@ -295,7 +317,7 @@ cargo doc --no-deps --open
 ## Testing
 
 ```bash
-# Run all tests (217 tests)
+# Run all tests (241 tests)
 cargo test
 
 # Run tests with output
