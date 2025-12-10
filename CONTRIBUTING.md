@@ -111,6 +111,19 @@ cargo test -- --nocapture
 - Use `cargo clippy` for linting
 - Write documentation comments for public APIs
 
+### Documentation Policy
+
+This project uses `#![warn(missing_docs)]` to encourage documentation, but it is not enforced as an error in CI. The policy is:
+
+- **Public APIs** (functions, structs, enums exported from `lib.rs`): Documentation is **required**
+- **Internal modules**: Documentation is **recommended** but not mandatory
+- **Test code**: Documentation is **optional**
+
+When adding new public APIs, please include:
+- A brief description of what the item does
+- Example usage (for complex functions)
+- Any important notes about behavior or limitations
+
 ### Commit Messages
 
 Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:

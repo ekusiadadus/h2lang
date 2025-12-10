@@ -1,4 +1,4 @@
-//! Macro and function expansion for toioswarm language.
+//! Macro and function expansion for H2 Language.
 
 use crate::ast::{Agent, Arg, Definition, Expr, Primitive};
 use crate::error::ExpandError;

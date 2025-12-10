@@ -1,4 +1,4 @@
-//! Abstract Syntax Tree definitions for toioswarm language.
+//! Abstract Syntax Tree definitions for H2 Language.
 
 use crate::token::Span;
 

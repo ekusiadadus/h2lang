@@ -1,4 +1,4 @@
-//! Recursive descent parser for toioswarm language.
+//! Recursive descent parser for H2 Language.
 //!
 //! Uses Peekable iterator with buffering for lookahead.
 
@@ -9,7 +9,7 @@ use crate::token::{Span, Token, TokenKind};
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
-/// Parser for toioswarm language.
+/// Parser for H2 Language.
 ///
 /// Uses Peekable iterator with a lookahead buffer for multi-token lookahead.
 pub struct Parser {

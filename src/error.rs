@@ -1,4 +1,4 @@
-//! Error types for toioswarm language compiler.
+//! Error types for H2 Language compiler.
 
 use crate::token::Span;
 use serde::{Deserialize, Serialize};

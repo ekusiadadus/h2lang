@@ -1,9 +1,9 @@
-//! Lexer (tokenizer) for toioswarm language.
+//! Lexer (tokenizer) for H2 Language.
 
 use crate::error::LexerError;
 use crate::token::{Span, Token, TokenKind};
 
-/// Lexer for toioswarm language.
+/// Lexer for H2 Language.
 pub struct Lexer<'a> {
     input: &'a str,
     chars: std::iter::Peekable<std::str::CharIndices<'a>>,
