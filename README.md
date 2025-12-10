@@ -4,10 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![WebAssembly](https://img.shields.io/badge/wasm-supported-blueviolet.svg)](https://webassembly.org/)
+[![Crates.io](https://img.shields.io/crates/v/h2lang.svg)](https://crates.io/crates/h2lang)
+[![Documentation](https://docs.rs/h2lang/badge.svg)](https://docs.rs/h2lang)
 
-<!-- Uncomment after publishing to crates.io and npm -->
-<!-- [![Crates.io](https://img.shields.io/crates/v/h2lang.svg)](https://crates.io/crates/h2lang) -->
-<!-- [![Documentation](https://docs.rs/h2lang/badge.svg)](https://docs.rs/h2lang) -->
+<!-- Uncomment after publishing to npm -->
 <!-- [![npm](https://img.shields.io/npm/v/h2lang.svg)](https://www.npmjs.com/package/h2lang) -->
 
 **H2 Language** (h2lang) is a programming language compiler fully compatible with the [Herbert Online Judge (HOJ)](https://github.com/quolc/hoj) H language specification, extended with multi-agent support for robot swarm control.
