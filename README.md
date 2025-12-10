@@ -356,7 +356,6 @@ h2lang/
 ├── rust-toolchain.toml # Rust toolchain configuration
 ├── CONTRIBUTING.md     # Contribution guidelines
 ├── CODE_OF_CONDUCT.md  # Community guidelines (Contributor Covenant)
-├── SECURITY.md         # Security policy
 ├── CHANGELOG.md        # Version history
 └── LICENSE             # MIT License
 ```
