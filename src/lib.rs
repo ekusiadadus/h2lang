@@ -4,6 +4,8 @@
 //! with the [Herbert Online Judge (HOJ)](https://github.com/quolc/hoj) H language
 //! specification while extending it with multi-agent support for robot swarm control.
 //!
+//! This crate contains no unsafe code.
+//!
 //! ## Overview
 //!
 //! H2 Language is a domain-specific language designed for controlling robots through
@@ -98,6 +100,8 @@
 //! - [Codeforces Discussion](https://codeforces.com/blog/entry/5579)
 
 #![doc(html_root_url = "https://docs.rs/h2lang/0.1.0")]
+#![forbid(unsafe_code)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // TODO: Re-enable once all public APIs are documented
 // #![warn(missing_docs)]
 #![warn(rustdoc::missing_crate_level_docs)]
