@@ -8,8 +8,8 @@
 //! - HOJ GitHub: https://github.com/quolc/hoj
 //! - Codeforces discussion: https://codeforces.com/blog/entry/5579
 
-use toioswarm_lang::compile_native;
-use toioswarm_lang::output::CompileResult;
+use h2lang::compile_native;
+use h2lang::output::CompileResult;
 
 // =============================================================================
 // Test Helpers
@@ -26,17 +26,19 @@ fn compile_to_string(source: &str) -> Result<String, String> {
                 .commands
                 .iter()
                 .map(|c| match c.command_type {
-                    toioswarm_lang::output::CommandType::Straight => 's',
-                    toioswarm_lang::output::CommandType::RotateRight => 'r',
-                    toioswarm_lang::output::CommandType::RotateLeft => 'l',
-                    toioswarm_lang::output::CommandType::Wait => 'w',
+                    h2lang::output::CommandType::Straight => 's',
+                    h2lang::output::CommandType::RotateRight => 'r',
+                    h2lang::output::CommandType::RotateLeft => 'l',
+                    h2lang::output::CommandType::Wait => 'w',
                 })
                 .collect();
             Ok(commands)
         }
-        CompileResult::Error { errors } => {
-            Err(errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>().join("; "))
-        }
+        CompileResult::Error { errors } => Err(errors
+            .iter()
+            .map(|e| e.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ")),
     }
 }
 
@@ -1165,7 +1167,10 @@ mod stress {
 
     #[test]
     fn test_many_agents_10() {
-        let source: String = (0..10).map(|i| format!("{}: s", i)).collect::<Vec<_>>().join("\n");
+        let source: String = (0..10)
+            .map(|i| format!("{}: s", i))
+            .collect::<Vec<_>>()
+            .join("\n");
         let result = compile_native(&source);
         match result {
             CompileResult::Success { program } => {

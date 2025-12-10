@@ -1,0 +1,38 @@
+{
+  "name": "h2lang",
+  "version": "0.1.0",
+  "description": "H2 Language - A Herbert Online Judge compatible programming language with multi-agent support",
+  "main": "pkg/h2lang.js",
+  "types": "pkg/h2lang.d.ts",
+  "files": [
+    "pkg"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --out-dir pkg",
+    "build:dev": "wasm-pack build --dev --target web --out-dir pkg",
+    "build:nodejs": "wasm-pack build --target nodejs --out-dir pkg",
+    "test": "wasm-pack test --headless --chrome",
+    "test:cargo": "cargo test",
+    "clean": "rm -rf pkg target",
+    "doc": "cargo doc --no-deps --open"
+  },
+  "keywords": [
+    "h2lang",
+    "herbert",
+    "hoj",
+    "wasm",
+    "compiler",
+    "robot",
+    "multi-agent"
+  ],
+  "author": "h2lang contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ekusiadadus/h2lang.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ekusiadadus/h2lang/issues"
+  },
+  "homepage": "https://github.com/ekusiadadus/h2lang#readme"
+}
