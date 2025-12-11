@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-11
+
+### Added
+
+- **Optional agent prefix for single-agent programs** - Programs with a single agent can now omit the `0:` prefix
+  ```h2
+  # Before (still works)
+  0: f(X):XXXX f(sssr)
+
+  # After (also works)
+  f(X):XXXX f(sssr)
+  ```
+- Multi-agent programs still require explicit agent IDs (`0:`, `1:`, etc.)
+
+### Changed
+
+- Parser now auto-detects single-agent vs multi-agent mode based on first token
+
 ## [0.1.0] - 2025-12-10
 
 ### Added
@@ -32,5 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ekusiadadus/h2lang/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ekusiadadus/h2lang/releases/tag/v0.1.0
