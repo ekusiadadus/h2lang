@@ -158,27 +158,18 @@ impl Parser {
             }
         } else {
             // Single agent mode (no prefix)
-            let agent = self.parse_agent_line_without_prefix()?;
+            // All lines are treated as the same agent (agent 0)
+            let agent = self.parse_agent_line_without_prefix_multiline()?;
             agents.push(agent);
-
-            // Skip trailing newlines
-            while self.check(&TokenKind::Newline) {
-                self.advance();
-            }
-
-            // If there's more content after the first line, it's an error
-            if !self.check(&TokenKind::Eof) {
-                return Err(ParseError::new(
-                    "Multiple lines require agent ID prefix (e.g., '0: srl')".to_string(),
-                    self.current_span(),
-                ));
-            }
         }
 
         Ok(Program { agents })
     }
 
-    /// Parse a single agent line with prefix: `agent_id ':' statement_list`
+    /// Parse agent with prefix: `agent_id ':' statement_list`
+    ///
+    /// Parses until EOF or the next agent ID is encountered.
+    /// Supports multi-line code for a single agent.
     fn parse_agent_line_with_prefix(&mut self) -> Result<Agent, ParseError> {
         let start_span = self.current_span();
 
@@ -201,8 +192,8 @@ impl Parser {
         // Skip space after colon
         self.skip_space();
 
-        // Parse statement list (definitions + expression)
-        let (definitions, expression) = self.parse_statement_list()?;
+        // Parse statement list across multiple lines until next AgentId or EOF
+        let (definitions, expression) = self.parse_statement_list_multiline()?;
 
         let end_span = self.current_span();
         let span = Span::new(
@@ -220,17 +211,18 @@ impl Parser {
         })
     }
 
-    /// Parse a single agent line without prefix (defaults to agent 0).
+    /// Parse multiple lines without prefix as a single agent (agent 0).
     ///
-    /// This is used for single-agent programs where the `0:` prefix is omitted.
-    fn parse_agent_line_without_prefix(&mut self) -> Result<Agent, ParseError> {
+    /// This is used for single-agent programs where all lines belong to agent 0.
+    /// Continues parsing until EOF, treating newlines as whitespace separators.
+    fn parse_agent_line_without_prefix_multiline(&mut self) -> Result<Agent, ParseError> {
         let start_span = self.current_span();
 
         // Default to agent 0
         let id = 0;
 
-        // Parse statement list (definitions + expression)
-        let (definitions, expression) = self.parse_statement_list()?;
+        // Parse statement list across multiple lines
+        let (definitions, expression) = self.parse_statement_list_multiline()?;
 
         let end_span = self.current_span();
         let span = Span::new(
@@ -248,15 +240,26 @@ impl Parser {
         })
     }
 
-    /// Parse statement list: `{definition} expression`
-    fn parse_statement_list(&mut self) -> Result<(Vec<Definition>, Expr), ParseError> {
+    /// Parse statement list across multiple lines until EOF or next AgentId.
+    ///
+    /// This is used for single-agent programs or multi-line agent definitions.
+    fn parse_statement_list_multiline(&mut self) -> Result<(Vec<Definition>, Expr), ParseError> {
         let mut definitions = Vec::new();
         let mut expression_terms = Vec::new();
 
-        while !self.is_at_end_of_line() {
-            // Skip leading spaces
-            self.skip_space();
-            if self.is_at_end_of_line() {
+        loop {
+            // Skip spaces and newlines
+            while self.check(&TokenKind::Space) || self.check(&TokenKind::Newline) {
+                self.advance();
+            }
+
+            // Check for end conditions
+            if self.check(&TokenKind::Eof) {
+                break;
+            }
+
+            // Check if we hit a new agent ID (for multi-agent mode)
+            if matches!(self.current_kind(), TokenKind::AgentId(_)) {
                 break;
             }
 
@@ -936,20 +939,57 @@ mod tests {
 
     #[test]
     fn test_no_agent_prefix_multiline() {
-        // Multiple lines without agent prefix should fail (ambiguous)
-        // Only single-line without prefix is allowed
+        // Multiple lines without agent prefix are allowed
+        // All lines are treated as the same agent (agent 0)
         let mut parser = Parser::new("srl\nlrs").unwrap();
-        let result = parser.parse_program();
-        // This should fail because second line has no agent ID
-        assert!(result.is_err());
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 1);
+        assert_eq!(program.agents[0].id, 0);
+        // srl + lrs = 6 commands total
+    }
+
+    #[test]
+    fn test_no_agent_prefix_macro_multiline() {
+        // Macro definition on one line, usage on next line
+        let mut parser = Parser::new("a:ssrs\naaaaaaaaaa").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 1);
+        assert_eq!(program.agents[0].id, 0);
+        assert_eq!(program.agents[0].definitions.len(), 1);
     }
 
     #[test]
     fn test_mixed_prefix_and_no_prefix() {
-        // If first line has no prefix, subsequent lines must also not have prefix
-        // If first line has prefix, subsequent lines must also have prefix
+        // If first line has prefix, it's multi-agent mode
         let mut parser = Parser::new("0: srl\n1: lrs").unwrap();
         let program = parser.parse_program().unwrap();
         assert_eq!(program.agents.len(), 2);
+    }
+
+    #[test]
+    fn test_agent_with_multiline_code() {
+        // Agent 0 has code spanning multiple lines
+        // Agent 1 has single line
+        let mut parser = Parser::new("0: a:ssrs\naaaa\n1: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 2);
+        assert_eq!(program.agents[0].id, 0);
+        assert_eq!(program.agents[0].definitions.len(), 1); // macro a
+        assert_eq!(program.agents[1].id, 1);
+    }
+
+    #[test]
+    fn test_agent_with_multiline_code_trailing() {
+        // Agent 0 code, then Agent 1 code with trailing lines
+        let mut parser = Parser::new("0: srl\n1: a:ss\naaaa").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 2);
+        assert_eq!(program.agents[0].id, 0);
+        assert_eq!(program.agents[1].id, 1);
+        assert_eq!(program.agents[1].definitions.len(), 1); // macro a
     }
 }

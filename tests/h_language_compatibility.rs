@@ -598,10 +598,13 @@ mod error_cases {
     }
 
     #[test]
-    fn test_missing_agent_id_multiline() {
-        // Multiple lines without agent ID prefix should fail
-        // Single line without prefix is now valid (defaults to agent 0)
-        assert_compile_error("srl\nlrs");
+    fn test_no_agent_prefix_multiline() {
+        // Multiple lines without agent ID prefix are now valid
+        // All lines are treated as agent 0
+        let result = compile_to_string("srl\nlrs");
+        assert!(result.is_ok());
+        // srl + lrs = 6 commands
+        assert_eq!(result.unwrap().len(), 6);
     }
 
     #[test]

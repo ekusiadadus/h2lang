@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-12-11
+
+### Fixed
+
+- **Multiline support for single-agent programs** - Programs without `0:` prefix can now span multiple lines
+  ```h2
+  # This now works (was previously an error)
+  a: ssrs
+  aaaaaaaaaa
+  ```
+- **Multiline support for multi-agent programs** - Each agent's code continues until the next agent ID
+  ```h2
+  0: a:ssrs
+  aaaa        # still part of agent 0
+  1: srl      # agent 1 starts here
+  ```
+
 ## [0.2.0] - 2025-12-11
 
 ### Added
@@ -50,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ekusiadadus/h2lang/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ekusiadadus/h2lang/releases/tag/v0.1.0
