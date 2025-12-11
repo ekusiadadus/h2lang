@@ -598,8 +598,10 @@ mod error_cases {
     }
 
     #[test]
-    fn test_missing_agent_id() {
-        assert_compile_error("srl");
+    fn test_missing_agent_id_multiline() {
+        // Multiple lines without agent ID prefix should fail
+        // Single line without prefix is now valid (defaults to agent 0)
+        assert_compile_error("srl\nlrs");
     }
 
     #[test]

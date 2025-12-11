@@ -123,6 +123,12 @@ impl Parser {
     }
 
     /// Parse the entire program.
+    ///
+    /// Supports two modes:
+    /// 1. **With agent prefix**: `0: srl` - traditional multi-agent syntax
+    /// 2. **Without agent prefix**: `srl` - single agent mode (defaults to agent 0)
+    ///
+    /// Single agent mode is only valid when there's exactly one line of code.
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut agents = Vec::new();
 
@@ -131,22 +137,49 @@ impl Parser {
             self.advance();
         }
 
-        // Parse agent lines
-        while !self.check(&TokenKind::Eof) {
-            let agent = self.parse_agent_line()?;
+        // Check if we're at EOF (empty program)
+        if self.check(&TokenKind::Eof) {
+            return Ok(Program { agents });
+        }
+
+        // Determine mode: check if first token is AgentId
+        let has_agent_prefix = matches!(self.current_kind(), TokenKind::AgentId(_));
+
+        if has_agent_prefix {
+            // Traditional multi-agent mode
+            while !self.check(&TokenKind::Eof) {
+                let agent = self.parse_agent_line_with_prefix()?;
+                agents.push(agent);
+
+                // Skip newlines between agents
+                while self.check(&TokenKind::Newline) {
+                    self.advance();
+                }
+            }
+        } else {
+            // Single agent mode (no prefix)
+            let agent = self.parse_agent_line_without_prefix()?;
             agents.push(agent);
 
-            // Skip newlines between agents
+            // Skip trailing newlines
             while self.check(&TokenKind::Newline) {
                 self.advance();
+            }
+
+            // If there's more content after the first line, it's an error
+            if !self.check(&TokenKind::Eof) {
+                return Err(ParseError::new(
+                    "Multiple lines require agent ID prefix (e.g., '0: srl')".to_string(),
+                    self.current_span(),
+                ));
             }
         }
 
         Ok(Program { agents })
     }
 
-    /// Parse a single agent line: `agent_id ':' statement_list`
-    fn parse_agent_line(&mut self) -> Result<Agent, ParseError> {
+    /// Parse a single agent line with prefix: `agent_id ':' statement_list`
+    fn parse_agent_line_with_prefix(&mut self) -> Result<Agent, ParseError> {
         let start_span = self.current_span();
 
         // Parse agent ID
@@ -167,6 +200,34 @@ impl Parser {
 
         // Skip space after colon
         self.skip_space();
+
+        // Parse statement list (definitions + expression)
+        let (definitions, expression) = self.parse_statement_list()?;
+
+        let end_span = self.current_span();
+        let span = Span::new(
+            start_span.start,
+            end_span.end,
+            start_span.line,
+            start_span.column,
+        );
+
+        Ok(Agent {
+            id,
+            definitions,
+            expression,
+            span,
+        })
+    }
+
+    /// Parse a single agent line without prefix (defaults to agent 0).
+    ///
+    /// This is used for single-agent programs where the `0:` prefix is omitted.
+    fn parse_agent_line_without_prefix(&mut self) -> Result<Agent, ParseError> {
+        let start_span = self.current_span();
+
+        // Default to agent 0
+        let id = 0;
 
         // Parse statement list (definitions + expression)
         let (definitions, expression) = self.parse_statement_list()?;
@@ -835,5 +896,60 @@ mod tests {
         } else {
             panic!("Expected FuncCallArgs");
         }
+    }
+
+    // =============================================================================
+    // Agent Prefix Optional Tests (Single Agent)
+    // =============================================================================
+
+    #[test]
+    fn test_no_agent_prefix_simple() {
+        // Single agent without "0:" prefix
+        let mut parser = Parser::new("srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 1);
+        assert_eq!(program.agents[0].id, 0);
+    }
+
+    #[test]
+    fn test_no_agent_prefix_with_macro() {
+        // Macro definition without agent prefix
+        let mut parser = Parser::new("x:ss xrx").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 1);
+        assert_eq!(program.agents[0].id, 0);
+        assert_eq!(program.agents[0].definitions.len(), 1);
+    }
+
+    #[test]
+    fn test_no_agent_prefix_with_function() {
+        // Function definition without agent prefix
+        let mut parser = Parser::new("f(X):XXXX f(sssr)").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.agents.len(), 1);
+        assert_eq!(program.agents[0].id, 0);
+        assert_eq!(program.agents[0].definitions.len(), 1);
+    }
+
+    #[test]
+    fn test_no_agent_prefix_multiline() {
+        // Multiple lines without agent prefix should fail (ambiguous)
+        // Only single-line without prefix is allowed
+        let mut parser = Parser::new("srl\nlrs").unwrap();
+        let result = parser.parse_program();
+        // This should fail because second line has no agent ID
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_mixed_prefix_and_no_prefix() {
+        // If first line has no prefix, subsequent lines must also not have prefix
+        // If first line has prefix, subsequent lines must also have prefix
+        let mut parser = Parser::new("0: srl\n1: lrs").unwrap();
+        let program = parser.parse_program().unwrap();
+        assert_eq!(program.agents.len(), 2);
     }
 }
