@@ -4,7 +4,7 @@
 
 use crate::ast::{
     Agent, Arg, Definition, Directive, DirectiveValue, Expr, FuncDef, LimitConfig, MacroDef,
-    OnLimitBehavior, Primitive, Program,
+    NumAtom, NumOp, OnLimitBehavior, Primitive, Program,
 };
 use crate::error::ParseError;
 use crate::lexer::Lexer;
@@ -779,18 +779,33 @@ impl Parser {
     }
 
     /// Parse a single function argument.
+    ///
+    /// HOJ-compatible argument parsing:
+    /// - If starts with NUMBER or PARAM followed by +/-, parse as num_expr
+    /// - Otherwise, parse as command expression
     fn parse_function_arg(&mut self) -> Result<Arg, ParseError> {
         let span = self.current_span();
 
         match self.current_kind() {
             TokenKind::Minus => {
-                // Negative number: -N
+                // Negative number: -N (H2 extension, not HOJ-compatible)
+                // Could be start of num_expr: -3+2
                 self.advance();
                 if let TokenKind::Number(n) = self.current_kind() {
                     let end_span = self.current_span();
                     self.advance();
                     let neg_span = Span::new(span.start, end_span.end, span.line, span.column);
-                    Ok(Arg::Number(-n, neg_span))
+
+                    // Check if more ops follow (e.g., -3+2)
+                    if matches!(
+                        self.current_kind(),
+                        TokenKind::Plus | TokenKind::Minus
+                    ) {
+                        // Extended num_expr: -3+2...
+                        self.parse_extended_num_expr(NumAtom::Number(-n), neg_span)
+                    } else {
+                        Ok(Arg::Number(-n, neg_span))
+                    }
                 } else {
                     Err(ParseError::unexpected_token(
                         "number after '-'",
@@ -801,14 +816,22 @@ impl Parser {
             }
             TokenKind::Number(n) => {
                 self.advance();
-                Ok(Arg::Number(n, span))
+                let next = self.current_kind();
+
+                // Check if this is a num_expr: 10-3+1
+                if matches!(next, TokenKind::Plus | TokenKind::Minus) {
+                    self.parse_extended_num_expr(NumAtom::Number(n), span)
+                } else {
+                    Ok(Arg::Number(n, span))
+                }
             }
             TokenKind::Param(p) => {
                 // Check if this is a numeric expression (e.g., X-1, X+2)
                 let next = self.peek_nth(1).map(|t| t.kind.clone());
                 match next {
                     Some(TokenKind::Plus) | Some(TokenKind::Minus) => {
-                        self.parse_numeric_expr(p, span)
+                        self.advance(); // consume param
+                        self.parse_extended_num_expr(NumAtom::Param(p), span)
                     }
                     _ => {
                         // Just a parameter reference as command arg
@@ -825,27 +848,50 @@ impl Parser {
         }
     }
 
-    /// Parse numeric expression: `PARAM ('+' | '-') NUMBER`
-    fn parse_numeric_expr(&mut self, param: char, start_span: Span) -> Result<Arg, ParseError> {
-        self.advance(); // consume param
+    /// Parse extended numeric expression: `first (('+' | '-') num_atom)*`
+    ///
+    /// HOJ supports: 10-3+1, X-1+2, etc.
+    fn parse_extended_num_expr(
+        &mut self,
+        first: NumAtom,
+        start_span: Span,
+    ) -> Result<Arg, ParseError> {
+        let mut rest = Vec::new();
+        let mut end_span = start_span;
 
-        let is_plus = self.check(&TokenKind::Plus);
-        self.advance(); // consume + or -
+        // Parse (('+' | '-') num_atom)*
+        while matches!(self.current_kind(), TokenKind::Plus | TokenKind::Minus) {
+            let op = if self.check(&TokenKind::Plus) {
+                NumOp::Add
+            } else {
+                NumOp::Sub
+            };
+            self.advance(); // consume + or -
 
-        let num = match self.current_kind() {
-            TokenKind::Number(n) => n,
-            _ => {
-                return Err(ParseError::unexpected_token(
-                    "number",
-                    self.current_kind().description(),
-                    self.current_span(),
-                ));
-            }
-        };
-        let end_span = self.current_span();
-        self.advance();
+            // Parse num_atom: NUMBER or PARAM
+            let atom = match self.current_kind() {
+                TokenKind::Number(n) => {
+                    end_span = self.current_span();
+                    self.advance();
+                    NumAtom::Number(n)
+                }
+                TokenKind::Param(p) => {
+                    end_span = self.current_span();
+                    self.advance();
+                    NumAtom::Param(p)
+                }
+                _ => {
+                    return Err(ParseError::unexpected_token(
+                        "number or parameter",
+                        self.current_kind().description(),
+                        self.current_span(),
+                    ));
+                }
+            };
 
-        let offset = if is_plus { num } else { -num };
+            rest.push((op, atom));
+        }
+
         let span = Span::new(
             start_span.start,
             end_span.end,
@@ -853,11 +899,7 @@ impl Parser {
             start_span.column,
         );
 
-        Ok(Arg::NumExpr {
-            param,
-            offset,
-            span,
-        })
+        Ok(Arg::NumExpr { first, rest, span })
     }
 
     /// Parse argument expression (until comma or rparen).
@@ -1016,9 +1058,10 @@ mod tests {
 
         if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
             assert_eq!(args.len(), 1);
-            if let Arg::NumExpr { param, offset, .. } = &args[0] {
-                assert_eq!(*param, 'X');
-                assert_eq!(*offset, -1);
+            if let Arg::NumExpr { first, rest, .. } = &args[0] {
+                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(rest.len(), 1);
+                assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(1)));
             } else {
                 panic!("Expected NumExpr");
             }
@@ -1034,9 +1077,50 @@ mod tests {
         let program = parser.parse_program().unwrap();
 
         if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
-            if let Arg::NumExpr { param, offset, .. } = &args[0] {
-                assert_eq!(*param, 'X');
-                assert_eq!(*offset, 2);
+            if let Arg::NumExpr { first, rest, .. } = &args[0] {
+                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(rest.len(), 1);
+                assert_eq!(rest[0], (NumOp::Add, NumAtom::Number(2)));
+            } else {
+                panic!("Expected NumExpr");
+            }
+        } else {
+            panic!("Expected FuncCallArgs");
+        }
+    }
+
+    #[test]
+    fn test_extended_num_expr_chain() {
+        // HOJ: a(10-3+1) = 8
+        let mut parser = Parser::new("0: a(10-3+1)").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+            if let Arg::NumExpr { first, rest, .. } = &args[0] {
+                assert_eq!(*first, NumAtom::Number(10));
+                assert_eq!(rest.len(), 2);
+                assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(3)));
+                assert_eq!(rest[1], (NumOp::Add, NumAtom::Number(1)));
+            } else {
+                panic!("Expected NumExpr");
+            }
+        } else {
+            panic!("Expected FuncCallArgs");
+        }
+    }
+
+    #[test]
+    fn test_extended_num_expr_with_param() {
+        // HOJ: a(X-1+2)
+        let mut parser = Parser::new("0: a(X-1+2)").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+            if let Arg::NumExpr { first, rest, .. } = &args[0] {
+                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(rest.len(), 2);
+                assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(1)));
+                assert_eq!(rest[1], (NumOp::Add, NumAtom::Number(2)));
             } else {
                 panic!("Expected NumExpr");
             }

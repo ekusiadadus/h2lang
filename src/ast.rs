@@ -88,6 +88,24 @@ impl Primitive {
     }
 }
 
+/// Operator in numeric expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumOp {
+    /// Addition (+)
+    Add,
+    /// Subtraction (-)
+    Sub,
+}
+
+/// Atom in numeric expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NumAtom {
+    /// Number literal (e.g., `4`, `12`)
+    Number(i32),
+    /// Parameter reference (e.g., `X`)
+    Param(char),
+}
+
 /// Function/Procedure argument (at call site).
 #[derive(Debug, Clone)]
 pub enum Arg {
@@ -95,10 +113,13 @@ pub enum Arg {
     Command(Expr),
     /// Number literal (e.g., `4`, `12`)
     Number(i32, Span),
-    /// Numeric expression with parameter (e.g., `X-1`, `X+2`)
+    /// Extended numeric expression: num_atom (('+' | '-') num_atom)*
+    /// Examples: `X-1`, `10-3+1`, `X+Y-2`
     NumExpr {
-        param: char,
-        offset: i32,
+        /// First atom
+        first: NumAtom,
+        /// Remaining (op, atom) pairs
+        rest: Vec<(NumOp, NumAtom)>,
         span: Span,
     },
 }

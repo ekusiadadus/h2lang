@@ -1,6 +1,6 @@
 //! Macro and function expansion for H2 Language.
 
-use crate::ast::{Agent, Arg, Definition, Expr, LimitConfig, OnLimitBehavior, Primitive};
+use crate::ast::{Agent, Arg, Definition, Expr, LimitConfig, NumAtom, NumOp, OnLimitBehavior, Primitive};
 use crate::error::ExpandError;
 use crate::token::Span;
 use std::cell::Cell;
@@ -331,6 +331,16 @@ impl Expander {
     ) -> Result<ParamValue, ExpandError> {
         match arg {
             Arg::Command(expr) => {
+                // Special case: if the expression is a single Param reference
+                // and that param is bound to a Number, pass through the Number.
+                // This handles HOJ patterns like: a(X,Y):sra(X-1,Y) a(3,2)
+                // where Y is passed through to recursive calls.
+                if let Expr::Param(p, _) = expr {
+                    if let Some(value) = params.get(p) {
+                        return Ok(value.clone());
+                    }
+                }
+
                 let cmds = self.expand_expr(expr, ctx, params)?;
                 Ok(ParamValue::Commands(cmds))
             }
@@ -341,34 +351,67 @@ impl Expander {
                 }
                 Ok(ParamValue::Number(*n))
             }
-            Arg::NumExpr {
-                param,
-                offset,
-                span,
-            } => {
-                // Look up the current value of the parameter
-                if let Some(value) = params.get(param) {
+            Arg::NumExpr { first, rest, span } => {
+                // Evaluate extended num_expr: first ((op atom)*)
+                // Examples: X-1, 10-3+1, X+Y-2
+
+                // Evaluate the first atom
+                let mut result = self.eval_num_atom(first, params, *span)?;
+
+                // Apply each operation in sequence (left-to-right)
+                for (op, atom) in rest {
+                    let atom_value = self.eval_num_atom(atom, params, *span)?;
+                    result = match op {
+                        NumOp::Add => result + atom_value,
+                        NumOp::Sub => result - atom_value,
+                    };
+
+                    // E007: Check intermediate result range
+                    if result < -255 || result > 255 {
+                        return Err(ExpandError::numeric_out_of_range(result, *span));
+                    }
+                }
+
+                Ok(ParamValue::Number(result))
+            }
+        }
+    }
+
+    /// Evaluate a numeric atom to an i32 value.
+    fn eval_num_atom(
+        &self,
+        atom: &NumAtom,
+        params: &HashMap<char, ParamValue>,
+        span: Span,
+    ) -> Result<i32, ExpandError> {
+        match atom {
+            NumAtom::Number(n) => {
+                // E007: Check range
+                if *n < -255 || *n > 255 {
+                    return Err(ExpandError::numeric_out_of_range(*n, span));
+                }
+                Ok(*n)
+            }
+            NumAtom::Param(p) => {
+                // Look up the parameter value
+                if let Some(value) = params.get(p) {
                     match value {
-                        ParamValue::Number(n) => {
-                            let result = n + offset;
-                            // E007: Check result range
-                            if result < -255 || result > 255 {
-                                return Err(ExpandError::numeric_out_of_range(result, *span));
-                            }
-                            Ok(ParamValue::Number(result))
-                        }
+                        ParamValue::Number(n) => Ok(*n),
                         ParamValue::Commands(_) => {
                             // E008: CmdSeq type parameter used in num_expr
                             Err(ExpandError::type_error(
-                                format!("Parameter '{}' is CmdSeq type but used in numeric expression", param),
-                                *span,
+                                format!(
+                                    "Parameter '{}' is CmdSeq type but used in numeric expression",
+                                    p
+                                ),
+                                span,
                             ))
                         }
                     }
                 } else {
                     Err(ExpandError::new(
-                        format!("Undefined parameter '{}'", param),
-                        *span,
+                        format!("Undefined parameter '{}'", p),
+                        span,
                     ))
                 }
             }
