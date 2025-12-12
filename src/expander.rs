@@ -185,9 +185,9 @@ impl Expander {
                             Ok(result)
                         }
                         ParamValue::Number(_) => {
-                            // Numeric param used as command - this is an error
-                            Err(ExpandError::new(
-                                format!("Numeric parameter '{}' cannot be used as command", name),
+                            // E008: Int type parameter used as term (command)
+                            Err(ExpandError::type_error(
+                                format!("Parameter '{}' is Int type but used as command sequence", name),
                                 *span,
                             ))
                         }
@@ -230,6 +230,16 @@ impl Expander {
             Expr::FuncCallArgs { name, args, span } => {
                 // Look up function
                 if let Some((param_names, body)) = ctx.functions.get(name) {
+                    // E003: Check argument count
+                    if args.len() != param_names.len() {
+                        return Err(ExpandError::argument_count_mismatch(
+                            *name,
+                            param_names.len(),
+                            args.len(),
+                            *span,
+                        ));
+                    }
+
                     // Evaluate arguments and bind to parameters
                     let mut new_params = params.clone();
 
@@ -315,7 +325,13 @@ impl Expander {
                 let cmds = self.expand_expr(expr, ctx, params)?;
                 Ok(ParamValue::Commands(cmds))
             }
-            Arg::Number(n, _) => Ok(ParamValue::Number(*n)),
+            Arg::Number(n, span) => {
+                // E007: Check numeric range (-255..=255)
+                if *n < -255 || *n > 255 {
+                    return Err(ExpandError::numeric_out_of_range(*n, *span));
+                }
+                Ok(ParamValue::Number(*n))
+            }
             Arg::NumExpr {
                 param,
                 offset,
@@ -324,11 +340,21 @@ impl Expander {
                 // Look up the current value of the parameter
                 if let Some(value) = params.get(param) {
                     match value {
-                        ParamValue::Number(n) => Ok(ParamValue::Number(n + offset)),
-                        ParamValue::Commands(_) => Err(ExpandError::new(
-                            format!("Parameter '{}' is not numeric", param),
-                            *span,
-                        )),
+                        ParamValue::Number(n) => {
+                            let result = n + offset;
+                            // E007: Check result range
+                            if result < -255 || result > 255 {
+                                return Err(ExpandError::numeric_out_of_range(result, *span));
+                            }
+                            Ok(ParamValue::Number(result))
+                        }
+                        ParamValue::Commands(_) => {
+                            // E008: CmdSeq type parameter used in num_expr
+                            Err(ExpandError::type_error(
+                                format!("Parameter '{}' is CmdSeq type but used in numeric expression", param),
+                                *span,
+                            ))
+                        }
                     }
                 } else {
                     Err(ExpandError::new(

@@ -146,10 +146,48 @@ impl ExpandError {
         }
     }
 
+    /// E003: Argument count mismatch
+    pub fn argument_count_mismatch(
+        name: char,
+        expected: usize,
+        actual: usize,
+        span: Span,
+    ) -> Self {
+        Self {
+            message: format!(
+                "[E003] Function '{}' expects {} argument(s), but {} provided",
+                name, expected, actual
+            ),
+            line: span.line,
+            column: span.column,
+        }
+    }
+
     /// E004: MAX_STEP limit exceeded
     pub fn max_step_exceeded(limit: usize, span: Span) -> Self {
         Self {
             message: format!("[E004] MAX_STEP limit ({}) exceeded", limit),
+            line: span.line,
+            column: span.column,
+        }
+    }
+
+    /// E007: Numeric value out of range (-255..255)
+    pub fn numeric_out_of_range(value: i32, span: Span) -> Self {
+        Self {
+            message: format!(
+                "[E007] Numeric value {} is out of range (-255..255)",
+                value
+            ),
+            line: span.line,
+            column: span.column,
+        }
+    }
+
+    /// E008: Type error (Int used as CmdSeq or CmdSeq used in num_expr)
+    pub fn type_error(message: impl Into<String>, span: Span) -> Self {
+        Self {
+            message: format!("[E008] {}", message.into()),
             line: span.line,
             column: span.column,
         }

@@ -143,9 +143,13 @@ fn t05_undefined_function() {
 /// Input: f(X,Y):XY\nf(s)
 /// Expected: Error E003
 #[test]
-#[ignore] // TODO: Implement argument count validation
 fn t06_argument_count_mismatch() {
     assert_compile_error("f(X,Y):XY\nf(s)", "T06");
+    let result = compile_to_string("f(X,Y):XY\nf(s)");
+    assert!(
+        error_contains(&result, "E003"),
+        "[T06] Error should mention E003"
+    );
 }
 
 // =============================================================================
@@ -202,9 +206,13 @@ fn t11_numeric_argument() {
 /// Input: a(X):s\na(256)
 /// Expected: Error E007
 #[test]
-#[ignore] // TODO: Implement numeric range validation (-255..255)
 fn t12_numeric_range_exceeded() {
     assert_compile_error("a(X):s\na(256)", "T12");
+    let result = compile_to_string("a(X):s\na(256)");
+    assert!(
+        error_contains(&result, "E007"),
+        "[T12] Error should mention E007"
+    );
 }
 
 // =============================================================================
@@ -217,9 +225,13 @@ fn t12_numeric_range_exceeded() {
 ///
 /// X is bound to Int (3), but used as term in expression (requires CmdSeq)
 #[test]
-#[ignore] // TODO: Implement type checking for Int vs CmdSeq
 fn t13_type_error_int_as_term() {
     assert_compile_error("f(X):X\nf(3)", "T13");
+    let result = compile_to_string("f(X):X\nf(3)");
+    assert!(
+        error_contains(&result, "E008"),
+        "[T13] Error should mention E008"
+    );
 }
 
 /// T14: Type error - CmdSeq type PARAM used in num_expr
@@ -228,9 +240,13 @@ fn t13_type_error_int_as_term() {
 ///
 /// X is bound to CmdSeq (sr), but X-1 requires Int type
 #[test]
-#[ignore] // TODO: Implement type checking for num_expr
 fn t14_type_error_cmdseq_in_numexpr() {
     assert_compile_error("a(X):a(X-1)\na(sr)", "T14");
+    let result = compile_to_string("a(X):a(X-1)\na(sr)");
+    assert!(
+        error_contains(&result, "E008"),
+        "[T14] Error should mention E008"
+    );
 }
 
 // =============================================================================
