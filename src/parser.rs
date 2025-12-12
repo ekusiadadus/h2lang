@@ -257,8 +257,14 @@ impl Parser {
     }
 
     /// Build LimitConfig from parsed directives.
+    ///
+    /// When no directives are specified, uses HOJ-compatible defaults (Truncate).
+    /// When directives are specified but ON_LIMIT is not, uses spec default (Error).
     fn build_limit_config(directives: &[Directive]) -> Result<LimitConfig, ParseError> {
         let mut config = LimitConfig::default();
+
+        // Track if ON_LIMIT was explicitly set
+        let mut on_limit_explicit = false;
 
         for directive in directives {
             match directive.name.as_str() {
@@ -317,6 +323,7 @@ impl Parser {
                     }
                 }
                 "ON_LIMIT" => {
+                    on_limit_explicit = true;
                     if let DirectiveValue::String(s) = &directive.value {
                         match s.as_str() {
                             "ERROR" => config.on_limit = OnLimitBehavior::Error,
@@ -345,6 +352,12 @@ impl Parser {
                     ));
                 }
             }
+        }
+
+        // If directives were specified but ON_LIMIT was not explicitly set,
+        // use spec default (Error) instead of HOJ default (Truncate)
+        if !directives.is_empty() && !on_limit_explicit {
+            config.on_limit = OnLimitBehavior::Error;
         }
 
         Ok(config)

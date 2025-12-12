@@ -36,9 +36,12 @@ impl Default for LimitConfig {
     fn default() -> Self {
         Self {
             max_step: 1_000_000,
+            // Depth limit to prevent Rust stack overflow
+            // Spec default is 100; safe for deep nested calls
             max_depth: 100,
             max_memory: 1_000_000,
-            on_limit: OnLimitBehavior::Error,
+            // HOJ compatibility: truncate by default instead of error
+            on_limit: OnLimitBehavior::Truncate,
         }
     }
 }

@@ -230,8 +230,10 @@ impl Expander {
             Expr::FuncCallArgs { name, args, span } => {
                 // Look up function
                 if let Some((param_names, body)) = ctx.functions.get(name) {
-                    // E003: Check argument count
-                    if args.len() != param_names.len() {
+                    // HOJ compatibility: a() with empty args is valid
+                    // It binds all parameters to empty CmdSeq
+                    // But f(s) when f(X,Y) expects 2 args is E003
+                    if !args.is_empty() && args.len() != param_names.len() {
                         return Err(ExpandError::argument_count_mismatch(
                             *name,
                             param_names.len(),
@@ -243,18 +245,25 @@ impl Expander {
                     // Evaluate arguments and bind to parameters
                     let mut new_params = params.clone();
 
-                    for (i, arg) in args.iter().enumerate() {
-                        if let Some(param_name) = param_names.get(i) {
-                            let param_value = self.eval_arg(arg, ctx, params)?;
+                    if args.is_empty() {
+                        // HOJ: a() binds all params to empty CmdSeq
+                        for param_name in param_names {
+                            new_params.insert(*param_name, ParamValue::Commands(vec![]));
+                        }
+                    } else {
+                        for (i, arg) in args.iter().enumerate() {
+                            if let Some(param_name) = param_names.get(i) {
+                                let param_value = self.eval_arg(arg, ctx, params)?;
 
-                            // HOJ termination: if numeric arg <= 0, return empty
-                            if let ParamValue::Number(n) = &param_value {
-                                if *n <= 0 {
-                                    return Ok(vec![]);
+                                // HOJ termination: if numeric arg <= 0, return empty
+                                if let ParamValue::Number(n) = &param_value {
+                                    if *n <= 0 {
+                                        return Ok(vec![]);
+                                    }
                                 }
-                            }
 
-                            new_params.insert(*param_name, param_value);
+                                new_params.insert(*param_name, param_value);
+                            }
                         }
                     }
 
