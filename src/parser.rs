@@ -9,17 +9,18 @@ use crate::ast::{
 use crate::error::ParseError;
 use crate::lexer::Lexer;
 use crate::token::{Span, Token, TokenKind};
+use std::collections::VecDeque;
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
 /// Parser for H2 Language.
 ///
-/// Uses Peekable iterator with a lookahead buffer for multi-token lookahead.
+/// Uses Peekable iterator with a VecDeque buffer for O(1) lookahead.
 pub struct Parser {
     /// Token iterator
     tokens: Peekable<IntoIter<Token>>,
-    /// Lookahead buffer for multi-token lookahead
-    buffer: Vec<Token>,
+    /// Lookahead buffer for multi-token lookahead (VecDeque for O(1) pop_front)
+    buffer: VecDeque<Token>,
     /// Last consumed token's span (for error reporting)
     last_span: Span,
 }
@@ -36,7 +37,7 @@ impl Parser {
 
         Ok(Self {
             tokens: tokens.into_iter().peekable(),
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
             last_span: default_span,
         })
     }
@@ -45,7 +46,7 @@ impl Parser {
     fn fill_buffer(&mut self, n: usize) {
         while self.buffer.len() < n {
             if let Some(token) = self.tokens.next() {
-                self.buffer.push(token);
+                self.buffer.push_back(token);
             } else {
                 break;
             }
@@ -55,7 +56,7 @@ impl Parser {
     /// Peek at the current token (0th position).
     fn peek(&mut self) -> Option<&Token> {
         self.fill_buffer(1);
-        self.buffer.first()
+        self.buffer.front()
     }
 
     /// Peek at the nth token ahead (0-indexed).
@@ -78,9 +79,9 @@ impl Parser {
 
     /// Advance to next token, returning the consumed token.
     fn advance(&mut self) -> Option<Token> {
-        // First try to take from buffer
+        // First try to take from buffer (O(1) with VecDeque)
         if !self.buffer.is_empty() {
-            let token = self.buffer.remove(0);
+            let token = self.buffer.pop_front().unwrap();
             self.last_span = token.span;
             Some(token)
         } else {
@@ -194,8 +195,8 @@ impl Parser {
         let mut directives = Vec::new();
 
         loop {
-            // Skip newlines
-            while self.check(&TokenKind::Newline) {
+            // Skip newlines and leading spaces (indented directives)
+            while self.check(&TokenKind::Newline) || self.check(&TokenKind::Space) {
                 self.advance();
             }
 
@@ -1188,5 +1189,59 @@ mod tests {
         assert_eq!(program.agents[0].id, 0);
         assert_eq!(program.agents[1].id, 1);
         assert_eq!(program.agents[1].definitions.len(), 1); // macro a
+    }
+
+    // =============================================================================
+    // Directive Parsing Tests (including indented directives)
+    // =============================================================================
+
+    #[test]
+    fn test_indented_directive() {
+        // Directive with leading space should be parsed correctly
+        let mut parser = Parser::new("  MAX_STEP=100\n0: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.directives.len(), 1);
+        assert_eq!(program.directives[0].name, "MAX_STEP");
+        assert_eq!(program.limits.max_step, 100);
+    }
+
+    #[test]
+    fn test_multiple_directives_with_spaces() {
+        // Multiple directives with various spacing
+        let mut parser = Parser::new("  MAX_STEP=50\n  ON_LIMIT=TRUNCATE\n0: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.directives.len(), 2);
+        assert_eq!(program.limits.max_step, 50);
+        assert_eq!(program.limits.on_limit, OnLimitBehavior::Truncate);
+    }
+
+    #[test]
+    fn test_directive_without_spaces() {
+        // Directive without leading space still works
+        let mut parser = Parser::new("MAX_STEP=200\n0: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.directives.len(), 1);
+        assert_eq!(program.limits.max_step, 200);
+    }
+
+    #[test]
+    fn test_directive_default_on_limit_with_directive() {
+        // When directive is specified but ON_LIMIT is not, default to Error
+        let mut parser = Parser::new("MAX_STEP=100\n0: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.limits.on_limit, OnLimitBehavior::Error);
+    }
+
+    #[test]
+    fn test_no_directive_default_on_limit() {
+        // When no directive is specified, default to Truncate (HOJ compatibility)
+        let mut parser = Parser::new("0: srl").unwrap();
+        let program = parser.parse_program().unwrap();
+
+        assert_eq!(program.limits.on_limit, OnLimitBehavior::Truncate);
     }
 }

@@ -64,6 +64,7 @@ impl<'a> Lexer<'a> {
                 self.line += 1;
                 self.column = 1;
                 self.at_line_start = true;
+                self.after_equals = false; // Reset on newline
                 TokenKind::Newline
             }
             '\r' => {
@@ -74,6 +75,7 @@ impl<'a> Lexer<'a> {
                 self.line += 1;
                 self.column = 1;
                 self.at_line_start = true;
+                self.after_equals = false; // Reset on newline
                 TokenKind::Newline
             }
 
@@ -186,16 +188,23 @@ impl<'a> Lexer<'a> {
                 }
             }
 
-            // Numbers (agent IDs at line start, otherwise Number literals)
+            // Numbers (agent IDs at line start WITH colon, otherwise Number literals)
             c if c.is_ascii_digit() => {
                 let was_at_line_start = self.at_line_start;
                 self.after_equals = false;
                 self.at_line_start = false;
                 let num = self.read_number(c);
-                // At line start, it's an agent ID (e.g., "0: srl")
-                // Otherwise, it's a number literal (e.g., "a(4)")
+
+                // At line start, check if followed by ':' (possibly after spaces)
+                // to determine if it's AgentId or Number
                 if was_at_line_start {
-                    TokenKind::AgentId(num)
+                    // Check if ':' follows (directly or after spaces)
+                    if self.peek_is_colon_ahead() {
+                        TokenKind::AgentId(num)
+                    } else {
+                        // Line-start number without ':' is just a Number
+                        TokenKind::Number(num as i32)
+                    }
                 } else {
                     TokenKind::Number(num as i32)
                 }
@@ -280,6 +289,25 @@ impl<'a> Lexer<'a> {
     /// Peek at the next character without consuming it.
     fn peek_char(&mut self) -> Option<char> {
         self.chars.peek().map(|&(_, ch)| ch)
+    }
+
+    /// Check if ':' appears ahead (possibly after spaces).
+    /// Used to determine if a line-start number is AgentId.
+    fn peek_is_colon_ahead(&self) -> bool {
+        // Create a temporary iterator to peek ahead without modifying state
+        let mut temp_chars = self.input[self.current_pos..].chars().peekable();
+
+        // Skip spaces/tabs
+        while let Some(&c) = temp_chars.peek() {
+            if c == ' ' || c == '\t' {
+                temp_chars.next();
+            } else {
+                break;
+            }
+        }
+
+        // Check if next non-space character is ':'
+        temp_chars.peek() == Some(&':')
     }
 
     /// Advance to the next character.
@@ -647,5 +675,77 @@ mod tests {
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(0));
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Colon);
+    }
+
+    // Tests for AgentId ':' check fix
+    #[test]
+    fn test_agent_id_requires_colon() {
+        // "0:" should produce AgentId(0)
+        let mut lexer = Lexer::new("0: srl");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(0));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Colon);
+    }
+
+    #[test]
+    fn test_line_start_number_without_colon_is_number() {
+        // "0\nsrl" - the 0 at line start without ':' should be Number, not AgentId
+        let mut lexer = Lexer::new("0\nsrl");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Number(0));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
+    }
+
+    #[test]
+    fn test_agent_id_with_space_before_colon() {
+        // "0 : srl" - AgentId even with space before ':'
+        let mut lexer = Lexer::new("0 : srl");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(0));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Space);
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Colon);
+    }
+
+    #[test]
+    fn test_multi_digit_agent_id_requires_colon() {
+        // "123: srl" should be AgentId(123)
+        let mut lexer = Lexer::new("123: srl");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(123));
+    }
+
+    #[test]
+    fn test_multi_digit_number_without_colon() {
+        // "123\nsrl" - 123 at line start without ':' should be Number
+        let mut lexer = Lexer::new("123\nsrl");
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Number(123));
+    }
+
+    // Tests for after_equals reset on newline
+    #[test]
+    fn test_after_equals_reset_on_newline() {
+        // "ON_LIMIT=\nERROR" - ERROR after newline should NOT be DirectiveValue
+        // (after_equals should be reset by newline)
+        let mut lexer = Lexer::new("ON_LIMIT=\nERROR");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("ON_LIMIT".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
+        // ERROR at line start should be treated as unknown directive, not DirectiveValue
+        let result = lexer.next_token();
+        assert!(result.is_err()); // Unknown directive "ERROR"
+    }
+
+    #[test]
+    fn test_directive_value_same_line() {
+        // "ON_LIMIT=ERROR" on same line should work
+        let mut lexer = Lexer::new("ON_LIMIT=ERROR");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("ON_LIMIT".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::DirectiveValue("ERROR".to_string())
+        );
     }
 }

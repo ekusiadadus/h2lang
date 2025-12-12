@@ -49,11 +49,13 @@ parameter      ::= letter_upper             (* A-Z *)
 ```ebnf
 program           ::= directives (agent_block | single_agent_block)
 
-directives        ::= (directive NEWLINE)*
+directives        ::= (SPACE? directive NEWLINE)*
 
 directive         ::= directive_name '=' directive_value
 directive_name    ::= 'MAX_STEP' | 'MAX_DEPTH' | 'MAX_MEMORY' | 'ON_LIMIT'
 directive_value   ::= NUMBER | 'ERROR' | 'TRUNCATE'
+
+(* Note: Leading spaces are allowed before directives *)
 
 agent_block       ::= agent (NEWLINE agent)*
 agent             ::= AGENT_ID ':' agent_body
@@ -169,7 +171,14 @@ a(X):sa(X-1) a(4)
 | `MAX_STEP` | int | 1,000,000 | 1..10,000,000 |
 | `MAX_DEPTH` | int | 100 | 1..10,000 |
 | `MAX_MEMORY` | int | 1,000,000 | 1..10,000,000 |
-| `ON_LIMIT` | enum | ERROR | ERROR / TRUNCATE |
+| `ON_LIMIT` | enum | *see below* | ERROR / TRUNCATE |
+
+**ON_LIMIT Default Behavior:**
+- **No directives specified**: `TRUNCATE` (HOJ compatibility mode)
+- **Any directive specified**: `ERROR` (spec-compliant mode)
+
+This allows existing HOJ programs to work without modification (infinite patterns
+truncate naturally), while programs using directives get strict error checking.
 
 ### 5.2 What is Counted
 
