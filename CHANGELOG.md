@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-12-12
+
+### Fixed
+
+- **HOJ compatibility: Empty call exception restored**
+  - `a(X):X a()` now works (binds X to empty CmdSeq)
+  - `a(X):Xrra(sX) a()` generates increasing sequences from empty
+  - `a(X):sa(X-1) a()` terminates immediately (X=0)
+  - Default values: CmdSeq → empty, Int → 0
+
+### Changed
+
+- Expander now stores `param_types` for HOJ-compatible default binding
+
 ## [0.5.0] - 2025-12-12
 
 ### Breaking Changes
@@ -131,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/ekusiadadus/h2lang/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ekusiadadus/h2lang/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...v0.2.1

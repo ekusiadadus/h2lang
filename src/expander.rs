@@ -1,7 +1,8 @@
 //! Macro and function expansion for H2 Language.
 
 use crate::ast::{
-    Agent, Arg, Definition, Expr, LimitConfig, NumAtom, NumOp, OnLimitBehavior, Primitive,
+    Agent, Arg, Definition, Expr, LimitConfig, NumAtom, NumOp, OnLimitBehavior, ParamType,
+    Primitive,
 };
 use crate::error::ExpandError;
 use crate::token::Span;
@@ -51,9 +52,9 @@ impl From<Primitive> for Command {
 
 /// Expansion context.
 struct ExpandContext<'a> {
-    /// Function definitions: name -> (param_names, body)
+    /// Function definitions: name -> (param_names, param_types, body)
     /// Note: 0-arg functions (formerly macros) have empty param_names
-    functions: HashMap<char, (Vec<char>, Expr)>,
+    functions: HashMap<char, (Vec<char>, HashMap<char, ParamType>, Expr)>,
     /// Current recursion depth
     depth: usize,
     /// Limit configuration
@@ -116,8 +117,10 @@ impl Expander {
         for def in &agent.definitions {
             match def {
                 Definition::Function(f) => {
-                    ctx.functions
-                        .insert(f.name, (f.params.clone(), f.body.clone()));
+                    ctx.functions.insert(
+                        f.name,
+                        (f.params.clone(), f.param_types.clone(), f.body.clone()),
+                    );
                 }
             }
         }
@@ -184,32 +187,51 @@ impl Expander {
             Expr::FuncCall { name, args, span } => {
                 // Unified function call handling (v0.5.0)
                 // Look up function (includes 0-arg functions, formerly macros)
-                if let Some((param_names, body)) = ctx.functions.get(name) {
-                    // Strict arity check (v0.5.0: no special case for empty args)
-                    if args.len() != param_names.len() {
-                        return Err(ExpandError::argument_count_mismatch(
-                            *name,
-                            param_names.len(),
-                            args.len(),
-                            *span,
-                        ));
-                    }
-
+                if let Some((param_names, param_types, body)) = ctx.functions.get(name) {
                     // Evaluate arguments and bind to parameters
                     let mut new_params = params.clone();
 
-                    for (i, arg) in args.iter().enumerate() {
-                        if let Some(param_name) = param_names.get(i) {
-                            let param_value = self.eval_arg(arg, ctx, params)?;
+                    if args.is_empty() && !param_names.is_empty() {
+                        // HOJ compatibility: f() with params binds default values
+                        // CmdSeq → empty, Int → 0 (triggers ≤0 termination)
+                        for param_name in param_names {
+                            let default_value =
+                                match param_types.get(param_name).unwrap_or(&ParamType::CmdSeq) {
+                                    ParamType::CmdSeq => ParamValue::Commands(vec![]),
+                                    ParamType::Int => ParamValue::Number(0),
+                                };
 
-                            // Numeric termination: if numeric arg <= 0, return empty
-                            if let ParamValue::Number(n) = &param_value {
-                                if *n <= 0 {
-                                    return Ok(vec![]);
-                                }
+                            // Int=0 triggers termination
+                            if let ParamValue::Number(0) = &default_value {
+                                return Ok(vec![]);
                             }
 
-                            new_params.insert(*param_name, param_value);
+                            new_params.insert(*param_name, default_value);
+                        }
+                    } else {
+                        // Normal case: check arity
+                        if args.len() != param_names.len() {
+                            return Err(ExpandError::argument_count_mismatch(
+                                *name,
+                                param_names.len(),
+                                args.len(),
+                                *span,
+                            ));
+                        }
+
+                        for (i, arg) in args.iter().enumerate() {
+                            if let Some(param_name) = param_names.get(i) {
+                                let param_value = self.eval_arg(arg, ctx, params)?;
+
+                                // Numeric termination: if numeric arg <= 0, return empty
+                                if let ParamValue::Number(n) = &param_value {
+                                    if *n <= 0 {
+                                        return Ok(vec![]);
+                                    }
+                                }
+
+                                new_params.insert(*param_name, param_value);
+                            }
                         }
                     }
 

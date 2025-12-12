@@ -333,9 +333,24 @@ fn hoj_complex_structure() {
 /// Regression: Empty function call a()
 #[test]
 fn hoj_regression_empty_call() {
-    // v0.5.0: a() on function with params is E003 (arity mismatch)
-    // No special case for empty args - strict arity check
-    assert_compile_error("a(X):X\na()", "regression_empty_call_e003");
+    // HOJ compatibility: a() binds all params to default values
+    // CmdSeq → empty, Int → 0 (triggers termination)
+    assert_compiles_to("a(X):X\na()", "", "regression_empty_call");
+}
+
+/// HOJ pattern: a(X):Xrra(sX) a() - increasing sequence from empty
+#[test]
+fn hoj_empty_call_increasing_pattern() {
+    // a() starts with X=empty
+    // a(empty) -> empty rr a(s empty) = rr a(s)
+    // a(s) -> s rr a(ss) = s rr ss rr a(sss) = ...
+    // This is a known HOJ technique for generating increasing sequences
+    // Limited by MAX_STEP to prevent infinite expansion
+    let result = compile_to_string("MAX_STEP=20\nON_LIMIT=TRUNCATE\na(X):Xrra(sX)\na()");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    let cmds = result.unwrap();
+    // Pattern: rr s rr ss rr sss rr ... (truncated at 20)
+    assert!(cmds.starts_with("rr"), "Should start with rr: {}", cmds);
 }
 
 /// Regression: Line-start number without colon is Number, not AgentId

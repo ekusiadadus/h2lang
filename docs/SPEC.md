@@ -210,15 +210,26 @@ f(X):sf(X-1) f(sr)# E008: X is Int, but sr is CmdSeq
 
 #### 4.4.1 Arity Check
 
-Argument count must **exactly** match parameter count:
+Argument count must match parameter count, with one exception:
 
 ```
 f(X,Y):XY f(s)    # E003: expects 2, got 1
 f(X,Y):XY f(s,r,l)# E003: expects 2, got 3
-f(X):X f()        # E003: expects 1, got 0
 ```
 
-**Note**: No special case for `f()`. If `f` has parameters, `f()` is E003.
+**HOJ Compatibility - Empty Call Exception**:
+
+When `f()` is called on a function with parameters, default values are bound:
+- `CmdSeq` parameters → empty sequence
+- `Int` parameters → 0 (triggers ≤0 termination)
+
+```
+a(X):X a()        # OK: X=empty → returns empty
+a(X):Xrra(sX) a() # OK: generates rr s rr ss rr sss rr ...
+a(X):sa(X-1) a()  # OK: X=0 → immediate termination → empty
+```
+
+This is a known HOJ technique for generating increasing sequences from empty.
 
 #### 4.4.2 Numeric Termination
 
