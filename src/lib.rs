@@ -99,7 +99,7 @@
 //! - [HOJ GitHub Repository](https://github.com/quolc/hoj)
 //! - [Codeforces Discussion](https://codeforces.com/blog/entry/5579)
 
-#![doc(html_root_url = "https://docs.rs/h2lang/0.5.1")]
+#![doc(html_root_url = "https://docs.rs/h2lang/0.5.2")]
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // TODO: Re-enable once all public APIs are documented

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-12
+
+### Fixed
+
+- **Parser: Concatenated params in function args** - `a(AA)`, `a(AB,A)` now parse correctly
+  - HOJ patterns like `a(A):Ara(AA) a(s)` (powers of 2)
+  - HOJ patterns like `a(A,B):Ara(AB,A) a(s,)` (Fibonacci)
+- **MAX_DEPTH respects ON_LIMIT** - MAX_DEPTH=N with ON_LIMIT=TRUNCATE now truncates instead of error
+
+### Added
+
+- **50 HOJ conformance tests** - Comprehensive coverage of snuke's HOJ blog patterns
+  - Arithmetic sequence, powers of 2, Fibonacci
+  - Division, fractal, empty argument patterns
+  - MAX_DEPTH + ON_LIMIT integration tests
+
 ## [0.5.1] - 2025-12-12
 
 ### Fixed
