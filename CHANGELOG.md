@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-12-12
+
+### Added
+
+- **Extended numeric expressions** - HOJ-compatible chained arithmetic in function arguments
+  ```h2
+  a(X):sa(X-1) a(10-3+1)   # evaluates to 8
+  a(X):sa(X-1) a(5+5-2)    # evaluates to 8
+  ```
+- **MAX_STEP directive** - Limit generated commands to prevent runaway expansions
+  ```h2
+  MAX_STEP=1000
+  ON_LIMIT=TRUNCATE
+  a(X):sa(X-1) a(999999)   # truncates at 1000 commands
+  ```
+- **MAX_DEPTH directive** - Limit recursion depth (default: 100)
+- **ON_LIMIT directive** - Control behavior when limits exceeded (ERROR or TRUNCATE)
+- **E003 error code** - Argument count mismatch validation
+- **E007 error code** - Numeric range validation (-255..255)
+- **E008 error code** - Type checking for Int vs CmdSeq parameters
+- **HOJ conformance tests** - 31 tests for HOJ Ruby implementation compatibility
+
+### Fixed
+
+- **AgentId detection** - Numbers at line start now require `:` to be AgentId
+- **Directive parsing** - Leading spaces before directives now handled correctly
+- **Parameter passthrough** - Numeric parameters properly passed in recursive calls
+- **Stack safety** - Improved handling of deep recursion patterns
+
+### Changed
+
+- Parser buffer changed from `Vec` to `VecDeque` for O(1) lookahead performance
+- Specification updated to v0.4.0 with HOJ compatibility documentation
+
 ## [0.2.1] - 2025-12-11
 
 ### Fixed
@@ -67,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ekusiadadus/h2lang/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ekusiadadus/h2lang/releases/tag/v0.1.0
