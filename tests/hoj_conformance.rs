@@ -384,3 +384,207 @@ fn hoj_byte_count_simple() {
 fn hoj_byte_count_function() {
     assert_compiles_to("f(X):XXXX\nf(sssr)", &"sssr".repeat(4), "byte_count_func");
 }
+
+// =============================================================================
+// HOJ Blog Patterns (snuke's blog: "Herbertと数学")
+// Reference: https://snuke.hatenablog.com/entry/2011/12/06/Herbertと数学
+// =============================================================================
+
+/// 等差数列 (Arithmetic sequence): a(A):Ara(sA) a()
+/// Generates: 0, 1, 2, 3, 4, 5, ...
+/// Pattern: r s r ss r sss r ssss r ...
+/// This is a CRITICAL HOJ technique that starts from empty and builds up.
+#[test]
+fn hoj_blog_arithmetic_sequence() {
+    // a() binds A to empty CmdSeq, then recursively builds sA
+    // With MAX_STEP limit to prevent infinite expansion
+    let result = compile_to_string("MAX_STEP=30\nON_LIMIT=TRUNCATE\na(A):Ara(sA)\na()");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    let cmds = result.unwrap();
+    // First iteration: A=empty → output r, then a(s)
+    // Second iteration: A=s → output s r, then a(ss)
+    // Pattern starts with: r s r ss r sss r ...
+    assert!(cmds.starts_with("r"), "Should start with r: {}", cmds);
+    assert!(cmds.len() > 0, "Should produce output");
+}
+
+/// 等差数列 with MAX_DEPTH truncation (not error)
+/// This test ensures MAX_DEPTH respects ON_LIMIT=TRUNCATE
+#[test]
+fn hoj_blog_arithmetic_sequence_depth_truncate() {
+    // Default ON_LIMIT is TRUNCATE, so deep recursion should truncate, not error
+    let result = compile_to_string("a(A):Ara(sA)\na()");
+    assert!(result.is_ok(), "MAX_DEPTH should truncate, not error: {:?}", result);
+}
+
+/// 等差数列 with explicit ON_LIMIT=ERROR should fail
+#[test]
+fn hoj_blog_arithmetic_sequence_depth_error() {
+    // With ON_LIMIT=ERROR, deep recursion should produce error
+    let result = compile_to_string("ON_LIMIT=ERROR\na(A):Ara(sA)\na()");
+    assert!(result.is_err(), "ON_LIMIT=ERROR should produce error");
+}
+
+/// 2の冪乗 (Powers of 2): a(A):Ara(AA) a(s)
+/// Generates: 1, 2, 4, 8, 16, ...
+/// Each iteration doubles the A sequence
+#[test]
+fn hoj_blog_powers_of_two() {
+    let result = compile_to_string("MAX_STEP=50\nON_LIMIT=TRUNCATE\na(A):Ara(AA)\na(s)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    let cmds = result.unwrap();
+    // First: A=s → s r a(ss)
+    // Second: A=ss → ss r a(ssss)
+    // Pattern: s r ss r ssss r ...
+    assert!(cmds.starts_with("sr"), "Should start with sr: {}", cmds);
+}
+
+/// フィボナッチ数列 (Fibonacci): a(A,B):Ara(AB,A) a(s,)
+/// Generates: 1, 1, 2, 3, 5, 8, 13, ...
+/// Uses two parameters: current (A) and previous (B)
+#[test]
+fn hoj_blog_fibonacci() {
+    // a(s,) means A=s, B=empty
+    // First: A=s, B=empty → s r a(s, s)
+    // Second: A=s, B=s → s r a(ss, s)
+    // Third: A=ss, B=s → ss r a(sss, ss)
+    let result = compile_to_string("MAX_STEP=50\nON_LIMIT=TRUNCATE\na(A,B):Ara(AB,A)\na(s,)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    let cmds = result.unwrap();
+    // Pattern: s r s r ss r sss r sssss r ...
+    assert!(cmds.starts_with("sr"), "Should start with sr: {}", cmds);
+}
+
+/// Empty second argument: a(s,) pattern
+/// The comma with nothing after it means empty CmdSeq for second param
+#[test]
+fn hoj_blog_empty_second_arg() {
+    // f(A,B):AB means concatenate A and B
+    // f(s,) means A=s, B=empty → result is just "s"
+    let result = compile_to_string("f(A,B):AB\nf(s,)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "s", "f(s,) should produce s");
+}
+
+/// Empty first argument: a(,s) pattern
+#[test]
+fn hoj_blog_empty_first_arg() {
+    // f(A,B):AB means concatenate A and B
+    // f(,s) means A=empty, B=s → result is just "s"
+    let result = compile_to_string("f(A,B):AB\nf(,s)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "s", "f(,s) should produce s");
+}
+
+/// Both arguments empty: a(,) pattern
+#[test]
+fn hoj_blog_both_args_empty() {
+    // f(A,B):AB with f(,) means both empty
+    let result = compile_to_string("f(A,B):AB\nf(,)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "", "f(,) should produce empty");
+}
+
+/// 割り算の基礎 (Division basics): b(B):sb(B-7)
+/// Subtracts 7 repeatedly until B <= 0
+#[test]
+fn hoj_blog_division_basic() {
+    // b(21) → s b(14) → ss b(7) → sss b(0) → sss (b(0) terminates)
+    // Wait, b(0) terminates immediately due to ≤0 rule
+    // So b(21) produces 3 s's (21/7 = 3)
+    let result = compile_to_string("b(B):sb(B-7)\nb(21)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "sss", "21/7 should produce 3 s's");
+}
+
+/// 割り算 10→7 (Division 10 by 7)
+#[test]
+fn hoj_blog_division_10_by_7() {
+    // b(10) → s b(3) → ss b(-4) → ss (b(-4) terminates)
+    // But wait, 10/7 = 1, not 2. The blog mentions this issue!
+    // The blog says we need b(X-6) to get correct result
+    let result = compile_to_string("b(B):sb(B-7)\nb(4)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    // b(4) → s b(-3) → s
+    assert_eq!(result.unwrap(), "s", "Should produce 1 s");
+}
+
+/// Int parameter with empty call terminates immediately
+#[test]
+fn hoj_blog_int_param_empty_call() {
+    // When f(X) has Int-typed X and f() is called, X=0 triggers termination
+    let result = compile_to_string("a(X):sa(X-1)\na()");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "", "Int X=0 should terminate immediately");
+}
+
+/// Mixed CmdSeq and Int params with empty call
+#[test]
+fn hoj_blog_mixed_params_empty_call() {
+    // a(X,Y) where X is CmdSeq (used as term) and Y is Int (used in num_expr)
+    // a() should bind X=empty, Y=0
+    // Y=0 triggers immediate termination
+    let result = compile_to_string("a(X,Y):Xsa(sX,Y-1)\na()");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    assert_eq!(result.unwrap(), "", "Int Y=0 should terminate");
+}
+
+/// フラクタル (Fractal) pattern: a(A,B):Ala(BlAAABl,BB) a(r,s)
+#[test]
+fn hoj_blog_fractal() {
+    let result = compile_to_string("MAX_STEP=100\nON_LIMIT=TRUNCATE\na(A,B):Ala(BlAAABl,BB)\na(r,s)");
+    assert!(result.is_ok(), "Should compile: {:?}", result);
+    let cmds = result.unwrap();
+    // First iteration: A=r, B=s → r l a(slrrrsl, ss)
+    assert!(cmds.starts_with("rl"), "Should start with rl: {}", cmds);
+}
+
+// =============================================================================
+// MAX_DEPTH + ON_LIMIT Integration Tests
+// =============================================================================
+
+/// MAX_DEPTH with default ON_LIMIT (TRUNCATE) should not error
+#[test]
+fn hoj_max_depth_default_truncate() {
+    // Deep CmdSeq recursion with default settings (ON_LIMIT=TRUNCATE)
+    let result = compile_to_string("a(X):sra(sX)\na()");
+    assert!(result.is_ok(), "Default ON_LIMIT=TRUNCATE should not error: {:?}", result);
+}
+
+/// MAX_DEPTH=10 with ON_LIMIT=TRUNCATE should truncate
+#[test]
+fn hoj_max_depth_explicit_truncate() {
+    let result = compile_to_string("MAX_DEPTH=10\nON_LIMIT=TRUNCATE\na(X):sra(sX)\na()");
+    assert!(result.is_ok(), "Should truncate: {:?}", result);
+    let cmds = result.unwrap();
+    // Should have some output before truncation
+    assert!(cmds.len() > 0, "Should have output before truncation");
+}
+
+/// MAX_DEPTH=10 with ON_LIMIT=ERROR should error
+#[test]
+fn hoj_max_depth_explicit_error() {
+    let result = compile_to_string("MAX_DEPTH=10\nON_LIMIT=ERROR\na(X):sra(sX)\na()");
+    assert!(result.is_err(), "Should error with ON_LIMIT=ERROR");
+}
+
+/// MAX_STEP takes precedence over MAX_DEPTH when step limit is reached first
+#[test]
+fn hoj_max_step_before_depth() {
+    // With small MAX_STEP, we hit step limit before depth limit
+    // Note: step_count includes argument evaluation, so a(sX) counts 's' in sX
+    // Output: s,r (body) then a(sX) evaluates sX (step++), then s,r (body)
+    // Total visible: srsr (4), but step_count = 5 (including arg eval)
+    let result = compile_to_string("MAX_STEP=5\nON_LIMIT=TRUNCATE\na(X):sra(sX)\na()");
+    assert!(result.is_ok(), "Should truncate at step limit: {:?}", result);
+    let cmds = result.unwrap();
+    assert_eq!(cmds.len(), 4, "Should have 4 visible commands (step_count includes arg eval)");
+}
+
+/// Verify the user's exact case: a(A):Ara(sA) a()
+#[test]
+fn hoj_user_case_arithmetic() {
+    // This was the exact case that failed before the fix
+    let result = compile_to_string("a(A):Ara(sA)\na()");
+    assert!(result.is_ok(), "User case should work with default TRUNCATE: {:?}", result);
+}

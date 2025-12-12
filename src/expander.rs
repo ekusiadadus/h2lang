@@ -136,9 +136,17 @@ impl Expander {
         ctx: &ExpandContext,
         params: &HashMap<char, ParamValue>,
     ) -> Result<Vec<Command>, ExpandError> {
-        // Check recursion depth
+        // Check recursion depth (respects ON_LIMIT)
         if ctx.depth > ctx.limits.max_depth {
-            return Err(ExpandError::max_recursion_depth(expr.span()));
+            match ctx.limits.on_limit {
+                OnLimitBehavior::Error => {
+                    return Err(ExpandError::max_recursion_depth(expr.span()));
+                }
+                OnLimitBehavior::Truncate => {
+                    ctx.truncated.set(true);
+                    return Ok(vec![]);
+                }
+            }
         }
 
         // Check if already truncated

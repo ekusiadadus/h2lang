@@ -955,9 +955,9 @@ impl Parser {
                         self.parse_extended_num_expr(NumAtom::Param(p), span)
                     }
                     _ => {
-                        // Just a parameter reference as command arg
-                        self.advance();
-                        Ok(Arg::Command(Expr::Param(p, span)))
+                        // Parse as command expression (handles AA, AB, etc.)
+                        let expr = self.parse_arg_expression()?;
+                        Ok(Arg::Command(expr))
                     }
                 }
             }
