@@ -1,6 +1,6 @@
 {
   "name": "h2lang",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "H2 Language - A Herbert Online Judge compatible programming language with multi-agent support",
   "main": "pkg/h2lang.js",
   "types": "pkg/h2lang.d.ts",

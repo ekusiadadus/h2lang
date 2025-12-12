@@ -54,7 +54,10 @@ fn assert_compiles_to(source: &str, expected: &str, test_id: &str) {
             );
         }
         Err(e) => {
-            panic!("[{}] Expected success '{}', got error: {}", test_id, expected, e);
+            panic!(
+                "[{}] Expected success '{}', got error: {}",
+                test_id, expected, e
+            );
         }
     }
 }
@@ -166,7 +169,11 @@ fn hoj_num_large() {
 fn hoj_num_boundary_255() {
     // 255 is valid, 256 is not
     // Need MAX_DEPTH=300 to handle 255 recursion levels
-    assert_compiles_to("MAX_DEPTH=300\nON_LIMIT=TRUNCATE\na(X):sa(X-1)\na(255)", &"s".repeat(255), "num_255");
+    assert_compiles_to(
+        "MAX_DEPTH=300\nON_LIMIT=TRUNCATE\na(X):sa(X-1)\na(255)",
+        &"s".repeat(255),
+        "num_255",
+    );
 }
 
 /// HOJ: Number exceeds boundary 256 -> E007
@@ -310,7 +317,11 @@ fn hoj_complex_structure() {
     //      -> sr srsrsr sr srsrsr (a(0) terminates)
     // Total: sr srsrsr sr srsrsr = 2 + 6 + 2 + 6 = 16 commands
     let result = compile_to_string(source);
-    assert!(result.is_ok(), "Complex structure should compile: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "Complex structure should compile: {:?}",
+        result
+    );
     let cmds = result.unwrap();
     assert_eq!(cmds.len(), 16, "Expected 16 commands, got {}", cmds.len());
 }
@@ -322,8 +333,9 @@ fn hoj_complex_structure() {
 /// Regression: Empty function call a()
 #[test]
 fn hoj_regression_empty_call() {
-    // a() should bind all params to empty CmdSeq
-    assert_compiles_to("a(X):X\na()", "", "regression_empty_call");
+    // v0.5.0: a() on function with params is E003 (arity mismatch)
+    // No special case for empty args - strict arity check
+    assert_compile_error("a(X):X\na()", "regression_empty_call_e003");
 }
 
 /// Regression: Line-start number without colon is Number, not AgentId

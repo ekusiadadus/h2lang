@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-12-12
+
+### Breaking Changes
+
+- **Unified function model** - Macros are now 0-arg functions
+  - `x:ss` is parsed as a 0-arg function, not a separate "macro"
+  - `Definition::Macro` removed from AST
+  - `Expr::Ident` removed, replaced by `Expr::FuncCall { args: vec![] }`
+- **Strict arity checking** - `a()` on function with params is now E003
+  - Previous behavior: `a(X):X a()` returned empty (special case)
+  - New behavior: `a(X):X a()` returns E003 (arity mismatch)
+- **AgentId requires immediate colon**
+  - `0:` → `AGENT_ID(0)`
+  - `0 :` → `NUMBER(0)`, `SPACE`, `COLON` (no longer AgentId)
+
+### Added
+
+- **Parameter type inference at definition time** - Types inferred from body usage
+  - `f(X):XX` → X is CmdSeq (used as term)
+  - `f(X):sf(X-1)` → X is Int (used in num_expr)
+- **E010 error code** - Type conflict when parameter used as both CmdSeq and Int
+- **`f():ss` syntax** - 0-arg functions with explicit empty parentheses
+- **Specification v0.5.0** - Complete language specification
+
+### Changed
+
+- AST simplified: `Expr::FuncCall { name, args, span }` unified model
+- `FuncDef` now includes `param_types: HashMap<char, ParamType>`
+- Expander uses single `functions` map instead of separate `macros` map
+
 ## [0.3.0] - 2025-12-12
 
 ### Added
@@ -101,7 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ekusiadadus/h2lang/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ekusiadadus/h2lang/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ekusiadadus/h2lang/compare/v0.1.0...v0.2.0

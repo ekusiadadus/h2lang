@@ -194,7 +194,6 @@ pub enum TokenKind {
     // -------------------------------------------------------------------------
     // Directives
     // -------------------------------------------------------------------------
-
     /// Directive keyword (e.g., MAX_STEP, MAX_DEPTH, MAX_MEMORY, ON_LIMIT)
     Directive(String),
 

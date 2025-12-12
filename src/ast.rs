@@ -140,18 +140,10 @@ impl Arg {
 pub enum Expr {
     /// Basic command
     Primitive(Primitive, Span),
-    /// Identifier reference (macro expansion target)
-    Ident(char, Span),
     /// Parameter reference (inside function body)
     Param(char, Span),
-    /// Function call with single command argument (legacy)
+    /// Function call (unified: 0-arg, 1-arg, n-arg)
     FuncCall {
-        name: char,
-        arg: Box<Expr>,
-        span: Span,
-    },
-    /// Function call with multiple/typed arguments (HOJ-compatible)
-    FuncCallArgs {
         name: char,
         args: Vec<Arg>,
         span: Span,
@@ -165,10 +157,8 @@ impl Expr {
     pub fn span(&self) -> Span {
         match self {
             Expr::Primitive(_, span) => *span,
-            Expr::Ident(_, span) => *span,
             Expr::Param(_, span) => *span,
             Expr::FuncCall { span, .. } => *span,
-            Expr::FuncCallArgs { span, .. } => *span,
             Expr::Sequence(exprs) => {
                 if exprs.is_empty() {
                     Span::default()
@@ -187,34 +177,33 @@ impl Expr {
     }
 }
 
-/// Macro definition.
-#[derive(Debug, Clone)]
-pub struct MacroDef {
-    /// Macro name (single lowercase letter)
-    pub name: char,
-    /// Macro body
-    pub body: Expr,
-    /// Source location
-    pub span: Span,
+/// Parameter type (inferred at definition time).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParamType {
+    /// Command sequence (s/r/l combinations)
+    CmdSeq,
+    /// Integer value (-255..255)
+    Int,
 }
 
-/// Function definition.
+/// Function definition (unified model - includes 0-arg functions).
 #[derive(Debug, Clone)]
 pub struct FuncDef {
     /// Function name (single lowercase letter)
     pub name: char,
-    /// Parameter names (uppercase letters)
+    /// Parameter names (uppercase letters), empty for 0-arg functions
     pub params: Vec<char>,
+    /// Parameter types (inferred at definition time)
+    pub param_types: std::collections::HashMap<char, ParamType>,
     /// Function body
     pub body: Expr,
     /// Source location
     pub span: Span,
 }
 
-/// Definition (macro or function).
+/// Definition (function only - macros are 0-arg functions).
 #[derive(Debug, Clone)]
 pub enum Definition {
-    Macro(MacroDef),
     Function(FuncDef),
 }
 
@@ -222,7 +211,6 @@ impl Definition {
     /// Get the name of this definition.
     pub fn name(&self) -> char {
         match self {
-            Definition::Macro(m) => m.name,
             Definition::Function(f) => f.name,
         }
     }
@@ -230,7 +218,6 @@ impl Definition {
     /// Get the span of this definition.
     pub fn span(&self) -> Span {
         match self {
-            Definition::Macro(m) => m.span,
             Definition::Function(f) => f.span,
         }
     }

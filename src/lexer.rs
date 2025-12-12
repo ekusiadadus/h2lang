@@ -291,23 +291,13 @@ impl<'a> Lexer<'a> {
         self.chars.peek().map(|&(_, ch)| ch)
     }
 
-    /// Check if ':' appears ahead (possibly after spaces).
+    /// Check if ':' appears immediately after current position.
     /// Used to determine if a line-start number is AgentId.
+    /// v0.5.0: AgentId requires immediate colon - "0:" is AgentId, "0 :" is Number.
     fn peek_is_colon_ahead(&self) -> bool {
-        // Create a temporary iterator to peek ahead without modifying state
-        let mut temp_chars = self.input[self.current_pos..].chars().peekable();
-
-        // Skip spaces/tabs
-        while let Some(&c) = temp_chars.peek() {
-            if c == ' ' || c == '\t' {
-                temp_chars.next();
-            } else {
-                break;
-            }
-        }
-
-        // Check if next non-space character is ':'
-        temp_chars.peek() == Some(&':')
+        // Check if the very next character is ':'
+        // No spaces allowed between number and colon for AgentId
+        self.input[self.current_pos..].starts_with(':')
     }
 
     /// Advance to the next character.
@@ -695,10 +685,10 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_id_with_space_before_colon() {
-        // "0 : srl" - AgentId even with space before ':'
+    fn test_space_before_colon_is_number() {
+        // v0.5.0: "0 : srl" - space before ':' means Number, not AgentId
         let mut lexer = Lexer::new("0 : srl");
-        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(0));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Number(0));
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Space);
         assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Colon);
     }

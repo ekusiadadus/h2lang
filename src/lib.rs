@@ -99,7 +99,7 @@
 //! - [HOJ GitHub Repository](https://github.com/quolc/hoj)
 //! - [Codeforces Discussion](https://codeforces.com/blog/entry/5579)
 
-#![doc(html_root_url = "https://docs.rs/h2lang/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/h2lang/0.5.0")]
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // TODO: Re-enable once all public APIs are documented
@@ -506,15 +506,16 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_error_undefined_macro() {
+    fn test_compile_error_undefined_function() {
+        // In v0.5.0, macros are 0-arg functions, so "x" alone is a 0-arg function call
         let result = compile_internal("0: x");
         match result {
             CompileResult::Success { .. } => {
-                panic!("Expected error for undefined macro");
+                panic!("Expected error for undefined function");
             }
             CompileResult::Error { errors } => {
                 assert!(!errors.is_empty());
-                assert!(errors[0].message.contains("Undefined macro"));
+                assert!(errors[0].message.contains("Undefined function"));
             }
         }
     }

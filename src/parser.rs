@@ -3,12 +3,13 @@
 //! Uses Peekable iterator with buffering for lookahead.
 
 use crate::ast::{
-    Agent, Arg, Definition, Directive, DirectiveValue, Expr, FuncDef, LimitConfig, MacroDef,
-    NumAtom, NumOp, OnLimitBehavior, Primitive, Program,
+    Agent, Arg, Definition, Directive, DirectiveValue, Expr, FuncDef, LimitConfig, NumAtom, NumOp,
+    OnLimitBehavior, ParamType, Primitive, Program,
 };
 use crate::error::ParseError;
 use crate::lexer::Lexer;
 use crate::token::{Span, Token, TokenKind};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -273,10 +274,7 @@ impl Parser {
                     if let DirectiveValue::Number(n) = &directive.value {
                         if *n < 1 || *n > 10_000_000 {
                             return Err(ParseError::new(
-                                format!(
-                                    "MAX_STEP value {} out of range (1..10000000) (E009)",
-                                    n
-                                ),
+                                format!("MAX_STEP value {} out of range (1..10000000) (E009)", n),
                                 directive.span,
                             ));
                         }
@@ -308,10 +306,7 @@ impl Parser {
                     if let DirectiveValue::Number(n) = &directive.value {
                         if *n < 1 || *n > 10_000_000 {
                             return Err(ParseError::new(
-                                format!(
-                                    "MAX_MEMORY value {} out of range (1..10000000) (E009)",
-                                    n
-                                ),
+                                format!("MAX_MEMORY value {} out of range (1..10000000) (E009)", n),
                                 directive.span,
                             ));
                         }
@@ -496,13 +491,13 @@ impl Parser {
 
         match next_kind {
             Some(TokenKind::Colon) => {
-                // Macro definition: `name ':' expression`
-                let def = self.parse_macro_def(name)?;
-                Ok(Some(Definition::Macro(def)))
+                // 0-arg function definition: `name ':' expression`
+                let def = self.parse_zero_arg_function_def(name)?;
+                Ok(Some(Definition::Function(def)))
             }
             Some(TokenKind::LParen) => {
                 // Could be function definition or function call
-                // Function definition has: name '(' PARAM ')' ':'
+                // Function definition has: name '(' PARAM? ')' ':'
                 if self.is_function_definition() {
                     let def = self.parse_function_def(name)?;
                     Ok(Some(Definition::Function(def)))
@@ -558,8 +553,8 @@ impl Parser {
         }
     }
 
-    /// Parse macro definition: `name ':' expression`
-    fn parse_macro_def(&mut self, name: char) -> Result<MacroDef, ParseError> {
+    /// Parse 0-arg function definition: `name ':' expression`
+    fn parse_zero_arg_function_def(&mut self, name: char) -> Result<FuncDef, ParseError> {
         let start_span = self.current_span();
 
         // Advance past name
@@ -579,10 +574,17 @@ impl Parser {
             start_span.column,
         );
 
-        Ok(MacroDef { name, body, span })
+        // 0-arg function has no parameters, so no type inference needed
+        Ok(FuncDef {
+            name,
+            params: vec![],
+            param_types: HashMap::new(),
+            body,
+            span,
+        })
     }
 
-    /// Parse function definition: `name '(' param (',' param)* ')' ':' expression`
+    /// Parse function definition: `name '(' param_list? ')' ':' expression`
     fn parse_function_def(&mut self, name: char) -> Result<FuncDef, ParseError> {
         let start_span = self.current_span();
 
@@ -592,28 +594,30 @@ impl Parser {
         // Expect '('
         self.expect(&TokenKind::LParen)?;
 
-        // Parse parameters (comma-separated)
+        // Parse parameters (comma-separated, may be empty)
         let mut params = Vec::new();
-        loop {
-            // Expect parameter
-            let param = match self.current_kind() {
-                TokenKind::Param(p) => p,
-                _ => {
-                    return Err(ParseError::unexpected_token(
-                        "parameter (uppercase letter)",
-                        self.current_kind().description(),
-                        self.current_span(),
-                    ));
-                }
-            };
-            self.advance();
-            params.push(param);
-
-            // Check for comma (more params) or RParen (end of params)
-            if self.check(&TokenKind::Comma) {
+        if !self.check(&TokenKind::RParen) {
+            loop {
+                // Expect parameter
+                let param = match self.current_kind() {
+                    TokenKind::Param(p) => p,
+                    _ => {
+                        return Err(ParseError::unexpected_token(
+                            "parameter (uppercase letter)",
+                            self.current_kind().description(),
+                            self.current_span(),
+                        ));
+                    }
+                };
                 self.advance();
-            } else {
-                break;
+                params.push(param);
+
+                // Check for comma (more params) or RParen (end of params)
+                if self.check(&TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -634,12 +638,128 @@ impl Parser {
             start_span.column,
         );
 
+        // Infer parameter types from body usage
+        let param_types = Self::infer_param_types(&params, &body)?;
+
         Ok(FuncDef {
             name,
             params,
+            param_types,
             body,
             span,
         })
+    }
+
+    /// Infer parameter types by analyzing their usage in the function body.
+    /// - PARAM as term (alone) → CmdSeq
+    /// - PARAM in num_expr (X-1, X+2) → Int
+    /// - Both usages → Error (E010)
+    fn infer_param_types(
+        params: &[char],
+        body: &Expr,
+    ) -> Result<HashMap<char, ParamType>, ParseError> {
+        let mut types: HashMap<char, Option<ParamType>> = HashMap::new();
+
+        // Initialize all params as unknown
+        for &p in params {
+            types.insert(p, None);
+        }
+
+        // Analyze body to infer types
+        Self::analyze_expr_for_types(body, &mut types)?;
+
+        // Convert to final types (default to CmdSeq if not used)
+        let mut result = HashMap::new();
+        for &p in params {
+            let ty = types
+                .get(&p)
+                .copied()
+                .flatten()
+                .unwrap_or(ParamType::CmdSeq);
+            result.insert(p, ty);
+        }
+
+        Ok(result)
+    }
+
+    /// Analyze expression to infer parameter types.
+    fn analyze_expr_for_types(
+        expr: &Expr,
+        types: &mut HashMap<char, Option<ParamType>>,
+    ) -> Result<(), ParseError> {
+        match expr {
+            Expr::Primitive(_, _) => Ok(()),
+            Expr::Param(p, span) => {
+                // Param used as term → CmdSeq
+                Self::mark_param_type(types, *p, ParamType::CmdSeq, *span)
+            }
+            Expr::FuncCall { args, .. } => {
+                for arg in args {
+                    Self::analyze_arg_for_types(arg, types)?;
+                }
+                Ok(())
+            }
+            Expr::Sequence(exprs) => {
+                for e in exprs {
+                    Self::analyze_expr_for_types(e, types)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Analyze argument to infer parameter types.
+    fn analyze_arg_for_types(
+        arg: &Arg,
+        types: &mut HashMap<char, Option<ParamType>>,
+    ) -> Result<(), ParseError> {
+        match arg {
+            Arg::Command(expr) => Self::analyze_expr_for_types(expr, types),
+            Arg::Number(_, _) => Ok(()),
+            Arg::NumExpr { first, rest, span } => {
+                // Params in num_expr → Int
+                if let NumAtom::Param(p) = first {
+                    Self::mark_param_type(types, *p, ParamType::Int, *span)?;
+                }
+                for (_, atom) in rest {
+                    if let NumAtom::Param(p) = atom {
+                        Self::mark_param_type(types, *p, ParamType::Int, *span)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Mark a parameter's type, checking for conflicts.
+    fn mark_param_type(
+        types: &mut HashMap<char, Option<ParamType>>,
+        param: char,
+        new_type: ParamType,
+        span: Span,
+    ) -> Result<(), ParseError> {
+        if let Some(current) = types.get_mut(&param) {
+            match current {
+                None => {
+                    *current = Some(new_type);
+                    Ok(())
+                }
+                Some(existing) if *existing == new_type => Ok(()),
+                Some(_) => {
+                    // Type conflict: E010
+                    Err(ParseError::new(
+                        format!(
+                            "[E010] Type conflict for parameter '{}': used as both CmdSeq and Int",
+                            param
+                        ),
+                        span,
+                    ))
+                }
+            }
+        } else {
+            // Not a defined parameter, ignore (will be caught elsewhere)
+            Ok(())
+        }
     }
 
     /// Parse expression until we hit Space, definition start, or end of line.
@@ -696,13 +816,17 @@ impl Parser {
                 Ok(Expr::Primitive(Primitive::Left, span))
             }
             TokenKind::Ident(name) => {
-                // Check if this is a function call
+                // Check if this is a function call with parentheses
                 if matches!(self.peek_nth(1).map(|t| &t.kind), Some(TokenKind::LParen)) {
                     self.parse_function_call(name)
                 } else {
-                    // Just an identifier (macro reference)
+                    // 0-arg function call (unified model - no separate macro/ident concept)
                     self.advance();
-                    Ok(Expr::Ident(name, span))
+                    Ok(Expr::FuncCall {
+                        name,
+                        args: vec![],
+                        span,
+                    })
                 }
             }
             TokenKind::Param(name) => {
@@ -752,8 +876,8 @@ impl Parser {
             start_span.column,
         );
 
-        // Use FuncCallArgs for HOJ-compatible calls
-        Ok(Expr::FuncCallArgs { name, args, span })
+        // Unified FuncCall (v0.5.0 - no separate FuncCallArgs)
+        Ok(Expr::FuncCall { name, args, span })
     }
 
     /// Parse function arguments separated by commas.
@@ -797,10 +921,7 @@ impl Parser {
                     let neg_span = Span::new(span.start, end_span.end, span.line, span.column);
 
                     // Check if more ops follow (e.g., -3+2)
-                    if matches!(
-                        self.current_kind(),
-                        TokenKind::Plus | TokenKind::Minus
-                    ) {
+                    if matches!(self.current_kind(), TokenKind::Plus | TokenKind::Minus) {
                         // Extended num_expr: -3+2...
                         self.parse_extended_num_expr(NumAtom::Number(-n), neg_span)
                     } else {
@@ -1041,12 +1162,12 @@ mod tests {
 
         assert_eq!(program.agents[0].definitions.len(), 1);
         // Expression should be a function call with numeric arg
-        if let Expr::FuncCallArgs { name, args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { name, args, .. } = &program.agents[0].expression {
             assert_eq!(*name, 'a');
             assert_eq!(args.len(), 1);
             assert!(matches!(args[0], Arg::Number(4, _)));
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1056,17 +1177,17 @@ mod tests {
         let mut parser = Parser::new("0: a(X-1)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             assert_eq!(args.len(), 1);
             if let Arg::NumExpr { first, rest, .. } = &args[0] {
-                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(first, &NumAtom::Param('X'));
                 assert_eq!(rest.len(), 1);
                 assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(1)));
             } else {
                 panic!("Expected NumExpr");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1076,16 +1197,16 @@ mod tests {
         let mut parser = Parser::new("0: a(X+2)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             if let Arg::NumExpr { first, rest, .. } = &args[0] {
-                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(first, &NumAtom::Param('X'));
                 assert_eq!(rest.len(), 1);
                 assert_eq!(rest[0], (NumOp::Add, NumAtom::Number(2)));
             } else {
                 panic!("Expected NumExpr");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1095,9 +1216,9 @@ mod tests {
         let mut parser = Parser::new("0: a(10-3+1)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             if let Arg::NumExpr { first, rest, .. } = &args[0] {
-                assert_eq!(*first, NumAtom::Number(10));
+                assert_eq!(first, &NumAtom::Number(10));
                 assert_eq!(rest.len(), 2);
                 assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(3)));
                 assert_eq!(rest[1], (NumOp::Add, NumAtom::Number(1)));
@@ -1105,7 +1226,7 @@ mod tests {
                 panic!("Expected NumExpr");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1115,9 +1236,9 @@ mod tests {
         let mut parser = Parser::new("0: a(X-1+2)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             if let Arg::NumExpr { first, rest, .. } = &args[0] {
-                assert_eq!(*first, NumAtom::Param('X'));
+                assert_eq!(first, &NumAtom::Param('X'));
                 assert_eq!(rest.len(), 2);
                 assert_eq!(rest[0], (NumOp::Sub, NumAtom::Number(1)));
                 assert_eq!(rest[1], (NumOp::Add, NumAtom::Number(2)));
@@ -1125,7 +1246,7 @@ mod tests {
                 panic!("Expected NumExpr");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1135,7 +1256,7 @@ mod tests {
         let mut parser = Parser::new("0: a(4,s)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             assert_eq!(args.len(), 2);
             assert!(matches!(args[0], Arg::Number(4, _)));
             if let Arg::Command(Expr::Primitive(Primitive::Straight, _)) = &args[1] {
@@ -1144,7 +1265,7 @@ mod tests {
                 panic!("Expected Command(Straight)");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1157,11 +1278,11 @@ mod tests {
         // Should have one function definition
         assert_eq!(program.agents[0].definitions.len(), 1);
         // Expression should be function call with two args
-        if let Expr::FuncCallArgs { name, args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { name, args, .. } = &program.agents[0].expression {
             assert_eq!(*name, 'a');
             assert_eq!(args.len(), 2);
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 
@@ -1171,7 +1292,7 @@ mod tests {
         let mut parser = Parser::new("0: f(srl)").unwrap();
         let program = parser.parse_program().unwrap();
 
-        if let Expr::FuncCallArgs { args, .. } = &program.agents[0].expression {
+        if let Expr::FuncCall { args, .. } = &program.agents[0].expression {
             assert_eq!(args.len(), 1);
             if let Arg::Command(Expr::Sequence(exprs)) = &args[0] {
                 assert_eq!(exprs.len(), 3);
@@ -1179,7 +1300,7 @@ mod tests {
                 panic!("Expected Command(Sequence)");
             }
         } else {
-            panic!("Expected FuncCallArgs");
+            panic!("Expected FuncCall");
         }
     }
 

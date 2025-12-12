@@ -1,6 +1,8 @@
 //! Macro and function expansion for H2 Language.
 
-use crate::ast::{Agent, Arg, Definition, Expr, LimitConfig, NumAtom, NumOp, OnLimitBehavior, Primitive};
+use crate::ast::{
+    Agent, Arg, Definition, Expr, LimitConfig, NumAtom, NumOp, OnLimitBehavior, Primitive,
+};
 use crate::error::ExpandError;
 use crate::token::Span;
 use std::cell::Cell;
@@ -49,9 +51,8 @@ impl From<Primitive> for Command {
 
 /// Expansion context.
 struct ExpandContext<'a> {
-    /// Macro definitions: name -> body
-    macros: HashMap<char, Expr>,
     /// Function definitions: name -> (param_names, body)
+    /// Note: 0-arg functions (formerly macros) have empty param_names
     functions: HashMap<char, (Vec<char>, Expr)>,
     /// Current recursion depth
     depth: usize,
@@ -104,7 +105,6 @@ impl Expander {
         let truncated = Cell::new(false);
 
         let mut ctx = ExpandContext {
-            macros: HashMap::new(),
             functions: HashMap::new(),
             depth: 0,
             limits: &self.limits,
@@ -112,12 +112,9 @@ impl Expander {
             truncated: &truncated,
         };
 
-        // Register definitions
+        // Register all definitions as functions (unified model)
         for def in &agent.definitions {
             match def {
-                Definition::Macro(m) => {
-                    ctx.macros.insert(m.name, m.body.clone());
-                }
                 Definition::Function(f) => {
                     ctx.functions
                         .insert(f.name, (f.params.clone(), f.body.clone()));
@@ -147,26 +144,7 @@ impl Expander {
         }
 
         match expr {
-            Expr::Primitive(p, span) => {
-                self.add_command_with_limit(Command::from(*p), ctx, *span)
-            }
-
-            Expr::Ident(name, span) => {
-                // Look up macro
-                if let Some(body) = ctx.macros.get(name) {
-                    let new_ctx = ExpandContext {
-                        macros: ctx.macros.clone(),
-                        functions: ctx.functions.clone(),
-                        depth: ctx.depth + 1,
-                        limits: ctx.limits,
-                        step_count: ctx.step_count,
-                        truncated: ctx.truncated,
-                    };
-                    self.expand_expr(body, &new_ctx, params)
-                } else {
-                    Err(ExpandError::undefined_macro(*name, *span))
-                }
-            }
+            Expr::Primitive(p, span) => self.add_command_with_limit(Command::from(*p), ctx, *span),
 
             Expr::Param(name, span) => {
                 // Look up parameter value
@@ -187,7 +165,10 @@ impl Expander {
                         ParamValue::Number(_) => {
                             // E008: Int type parameter used as term (command)
                             Err(ExpandError::type_error(
-                                format!("Parameter '{}' is Int type but used as command sequence", name),
+                                format!(
+                                    "Parameter '{}' is Int type but used as command sequence",
+                                    name
+                                ),
                                 *span,
                             ))
                         }
@@ -200,40 +181,12 @@ impl Expander {
                 }
             }
 
-            Expr::FuncCall { name, arg, span } => {
-                // Look up function
+            Expr::FuncCall { name, args, span } => {
+                // Unified function call handling (v0.5.0)
+                // Look up function (includes 0-arg functions, formerly macros)
                 if let Some((param_names, body)) = ctx.functions.get(name) {
-                    // First, expand the argument
-                    let arg_expanded = self.expand_expr(arg, ctx, params)?;
-
-                    // Create new parameter map with the expanded argument
-                    let mut new_params = params.clone();
-                    if let Some(param_name) = param_names.first() {
-                        new_params.insert(*param_name, ParamValue::Commands(arg_expanded));
-                    }
-
-                    // Expand the function body with the new parameters
-                    let new_ctx = ExpandContext {
-                        macros: ctx.macros.clone(),
-                        functions: ctx.functions.clone(),
-                        depth: ctx.depth + 1,
-                        limits: ctx.limits,
-                        step_count: ctx.step_count,
-                        truncated: ctx.truncated,
-                    };
-                    self.expand_expr(body, &new_ctx, &new_params)
-                } else {
-                    Err(ExpandError::undefined_function(*name, *span))
-                }
-            }
-
-            Expr::FuncCallArgs { name, args, span } => {
-                // Look up function
-                if let Some((param_names, body)) = ctx.functions.get(name) {
-                    // HOJ compatibility: a() with empty args is valid
-                    // It binds all parameters to empty CmdSeq
-                    // But f(s) when f(X,Y) expects 2 args is E003
-                    if !args.is_empty() && args.len() != param_names.len() {
+                    // Strict arity check (v0.5.0: no special case for empty args)
+                    if args.len() != param_names.len() {
                         return Err(ExpandError::argument_count_mismatch(
                             *name,
                             param_names.len(),
@@ -245,31 +198,23 @@ impl Expander {
                     // Evaluate arguments and bind to parameters
                     let mut new_params = params.clone();
 
-                    if args.is_empty() {
-                        // HOJ: a() binds all params to empty CmdSeq
-                        for param_name in param_names {
-                            new_params.insert(*param_name, ParamValue::Commands(vec![]));
-                        }
-                    } else {
-                        for (i, arg) in args.iter().enumerate() {
-                            if let Some(param_name) = param_names.get(i) {
-                                let param_value = self.eval_arg(arg, ctx, params)?;
+                    for (i, arg) in args.iter().enumerate() {
+                        if let Some(param_name) = param_names.get(i) {
+                            let param_value = self.eval_arg(arg, ctx, params)?;
 
-                                // HOJ termination: if numeric arg <= 0, return empty
-                                if let ParamValue::Number(n) = &param_value {
-                                    if *n <= 0 {
-                                        return Ok(vec![]);
-                                    }
+                            // Numeric termination: if numeric arg <= 0, return empty
+                            if let ParamValue::Number(n) = &param_value {
+                                if *n <= 0 {
+                                    return Ok(vec![]);
                                 }
-
-                                new_params.insert(*param_name, param_value);
                             }
+
+                            new_params.insert(*param_name, param_value);
                         }
                     }
 
                     // Expand the function body with the new parameters
                     let new_ctx = ExpandContext {
-                        macros: ctx.macros.clone(),
                         functions: ctx.functions.clone(),
                         depth: ctx.depth + 1,
                         limits: ctx.limits,
@@ -278,6 +223,7 @@ impl Expander {
                     };
                     self.expand_expr(body, &new_ctx, &new_params)
                 } else {
+                    // E001 for 0-arg, E002 for n-arg (both use same error now)
                     Err(ExpandError::undefined_function(*name, *span))
                 }
             }
@@ -367,7 +313,7 @@ impl Expander {
                     };
 
                     // E007: Check intermediate result range
-                    if result < -255 || result > 255 {
+                    if !(-255..=255).contains(&result) {
                         return Err(ExpandError::numeric_out_of_range(result, *span));
                     }
                 }

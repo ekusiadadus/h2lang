@@ -65,7 +65,10 @@ fn assert_compiles_to(source: &str, expected: &str, test_id: &str) {
             );
         }
         Err(e) => {
-            panic!("[{}] Expected success '{}', got error: {}", test_id, expected, e);
+            panic!(
+                "[{}] Expected success '{}', got error: {}",
+                test_id, expected, e
+            );
         }
     }
 }
@@ -410,5 +413,9 @@ fn additional_nested_function() {
 #[test]
 fn additional_deep_recursion() {
     // a(50) should produce 50 s's
-    assert_compiles_to("a(X):sa(X-1)\na(50)", &"s".repeat(50), "Additional-DeepRecursion");
+    assert_compiles_to(
+        "a(X):sa(X-1)\na(50)",
+        &"s".repeat(50),
+        "Additional-DeepRecursion",
+    );
 }
