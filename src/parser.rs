@@ -2,7 +2,10 @@
 //!
 //! Uses Peekable iterator with buffering for lookahead.
 
-use crate::ast::{Agent, Arg, Definition, Expr, FuncDef, MacroDef, Primitive, Program};
+use crate::ast::{
+    Agent, Arg, Definition, Directive, DirectiveValue, Expr, FuncDef, LimitConfig, MacroDef,
+    OnLimitBehavior, Primitive, Program,
+};
 use crate::error::ParseError;
 use crate::lexer::Lexer;
 use crate::token::{Span, Token, TokenKind};
@@ -124,23 +127,37 @@ impl Parser {
 
     /// Parse the entire program.
     ///
+    /// Structure: `directives* (agent_block | single_agent_block)`
+    ///
     /// Supports two modes:
     /// 1. **With agent prefix**: `0: srl` - traditional multi-agent syntax
     /// 2. **Without agent prefix**: `srl` - single agent mode (defaults to agent 0)
-    ///
-    /// Single agent mode is only valid when there's exactly one line of code.
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
-        let mut agents = Vec::new();
-
         // Skip leading newlines
         while self.check(&TokenKind::Newline) {
             self.advance();
         }
 
-        // Check if we're at EOF (empty program)
-        if self.check(&TokenKind::Eof) {
-            return Ok(Program { agents });
+        // Parse directives first
+        let directives = self.parse_directives()?;
+        let limits = Self::build_limit_config(&directives)?;
+
+        // Skip newlines after directives
+        while self.check(&TokenKind::Newline) {
+            self.advance();
         }
+
+        // Check if we're at EOF (empty program or directives only)
+        if self.check(&TokenKind::Eof) {
+            return Ok(Program {
+                directives,
+                limits,
+                agents: Vec::new(),
+            });
+        }
+
+        // Parse agents
+        let mut agents = Vec::new();
 
         // Determine mode: check if first token is AgentId
         let has_agent_prefix = matches!(self.current_kind(), TokenKind::AgentId(_));
@@ -163,7 +180,174 @@ impl Parser {
             agents.push(agent);
         }
 
-        Ok(Program { agents })
+        Ok(Program {
+            directives,
+            limits,
+            agents,
+        })
+    }
+
+    /// Parse directives at the beginning of the program.
+    ///
+    /// Directives are lines like `MAX_STEP=1000` or `ON_LIMIT=ERROR`
+    fn parse_directives(&mut self) -> Result<Vec<Directive>, ParseError> {
+        let mut directives = Vec::new();
+
+        loop {
+            // Skip newlines
+            while self.check(&TokenKind::Newline) {
+                self.advance();
+            }
+
+            // Check if this is a directive
+            if let TokenKind::Directive(name) = self.current_kind() {
+                let start_span = self.current_span();
+                self.advance();
+
+                // Expect '='
+                self.expect(&TokenKind::Equals)?;
+
+                // Parse directive value (number or directive value like ERROR/TRUNCATE)
+                let value = self.parse_directive_value()?;
+
+                let end_span = self.current_span();
+                let span = Span::new(
+                    start_span.start,
+                    end_span.end,
+                    start_span.line,
+                    start_span.column,
+                );
+
+                directives.push(Directive { name, value, span });
+
+                // Expect newline or EOF after directive
+                if !self.check(&TokenKind::Newline) && !self.check(&TokenKind::Eof) {
+                    return Err(ParseError::unexpected_token(
+                        "newline or end of input",
+                        self.current_kind().description(),
+                        self.current_span(),
+                    ));
+                }
+            } else {
+                // Not a directive, stop parsing directives
+                break;
+            }
+        }
+
+        Ok(directives)
+    }
+
+    /// Parse directive value (number or ERROR/TRUNCATE)
+    fn parse_directive_value(&mut self) -> Result<DirectiveValue, ParseError> {
+        match self.current_kind() {
+            TokenKind::Number(n) => {
+                self.advance();
+                Ok(DirectiveValue::Number(n as i64))
+            }
+            TokenKind::DirectiveValue(s) => {
+                self.advance();
+                Ok(DirectiveValue::String(s))
+            }
+            _ => Err(ParseError::unexpected_token(
+                "number or ERROR/TRUNCATE",
+                self.current_kind().description(),
+                self.current_span(),
+            )),
+        }
+    }
+
+    /// Build LimitConfig from parsed directives.
+    fn build_limit_config(directives: &[Directive]) -> Result<LimitConfig, ParseError> {
+        let mut config = LimitConfig::default();
+
+        for directive in directives {
+            match directive.name.as_str() {
+                "MAX_STEP" => {
+                    if let DirectiveValue::Number(n) = &directive.value {
+                        if *n < 1 || *n > 10_000_000 {
+                            return Err(ParseError::new(
+                                format!(
+                                    "MAX_STEP value {} out of range (1..10000000) (E009)",
+                                    n
+                                ),
+                                directive.span,
+                            ));
+                        }
+                        config.max_step = *n as usize;
+                    } else {
+                        return Err(ParseError::new(
+                            "MAX_STEP requires a numeric value (E009)",
+                            directive.span,
+                        ));
+                    }
+                }
+                "MAX_DEPTH" => {
+                    if let DirectiveValue::Number(n) = &directive.value {
+                        if *n < 1 || *n > 10_000 {
+                            return Err(ParseError::new(
+                                format!("MAX_DEPTH value {} out of range (1..10000) (E009)", n),
+                                directive.span,
+                            ));
+                        }
+                        config.max_depth = *n as usize;
+                    } else {
+                        return Err(ParseError::new(
+                            "MAX_DEPTH requires a numeric value (E009)",
+                            directive.span,
+                        ));
+                    }
+                }
+                "MAX_MEMORY" => {
+                    if let DirectiveValue::Number(n) = &directive.value {
+                        if *n < 1 || *n > 10_000_000 {
+                            return Err(ParseError::new(
+                                format!(
+                                    "MAX_MEMORY value {} out of range (1..10000000) (E009)",
+                                    n
+                                ),
+                                directive.span,
+                            ));
+                        }
+                        config.max_memory = *n as usize;
+                    } else {
+                        return Err(ParseError::new(
+                            "MAX_MEMORY requires a numeric value (E009)",
+                            directive.span,
+                        ));
+                    }
+                }
+                "ON_LIMIT" => {
+                    if let DirectiveValue::String(s) = &directive.value {
+                        match s.as_str() {
+                            "ERROR" => config.on_limit = OnLimitBehavior::Error,
+                            "TRUNCATE" => config.on_limit = OnLimitBehavior::Truncate,
+                            _ => {
+                                return Err(ParseError::new(
+                                    format!(
+                                        "ON_LIMIT value '{}' invalid, expected ERROR or TRUNCATE (E009)",
+                                        s
+                                    ),
+                                    directive.span,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(ParseError::new(
+                            "ON_LIMIT requires ERROR or TRUNCATE (E009)",
+                            directive.span,
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(ParseError::new(
+                        format!("Unknown directive '{}' (E009)", directive.name),
+                        directive.span,
+                    ));
+                }
+            }
+        }
+
+        Ok(config)
     }
 
     /// Parse agent with prefix: `agent_id ':' statement_list`

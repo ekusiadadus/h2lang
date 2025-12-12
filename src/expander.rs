@@ -1,7 +1,9 @@
 //! Macro and function expansion for H2 Language.
 
-use crate::ast::{Agent, Arg, Definition, Expr, Primitive};
+use crate::ast::{Agent, Arg, Definition, Expr, LimitConfig, OnLimitBehavior, Primitive};
 use crate::error::ExpandError;
+use crate::token::Span;
+use std::cell::Cell;
 use std::collections::HashMap;
 
 /// Parameter value (command sequence or number).
@@ -46,19 +48,25 @@ impl From<Primitive> for Command {
 }
 
 /// Expansion context.
-struct ExpandContext {
+struct ExpandContext<'a> {
     /// Macro definitions: name -> body
     macros: HashMap<char, Expr>,
     /// Function definitions: name -> (param_names, body)
     functions: HashMap<char, (Vec<char>, Expr)>,
     /// Current recursion depth
     depth: usize,
+    /// Limit configuration
+    limits: &'a LimitConfig,
+    /// Current step count (shared across all recursive calls)
+    step_count: &'a Cell<usize>,
+    /// Whether truncation occurred
+    truncated: &'a Cell<bool>,
 }
 
 /// Expander for macro and function expansion.
 pub struct Expander {
-    /// Maximum recursion depth to prevent infinite loops
-    max_depth: usize,
+    /// Limit configuration
+    limits: LimitConfig,
 }
 
 impl Default for Expander {
@@ -70,20 +78,38 @@ impl Default for Expander {
 impl Expander {
     /// Create a new expander with default settings.
     pub fn new() -> Self {
-        Self { max_depth: 100 }
+        Self {
+            limits: LimitConfig::default(),
+        }
     }
 
-    /// Create a new expander with custom max depth.
+    /// Create a new expander with custom limits.
+    pub fn with_limits(limits: LimitConfig) -> Self {
+        Self { limits }
+    }
+
+    /// Create a new expander with custom max depth (for backwards compatibility).
     pub fn with_max_depth(max_depth: usize) -> Self {
-        Self { max_depth }
+        Self {
+            limits: LimitConfig {
+                max_depth,
+                ..LimitConfig::default()
+            },
+        }
     }
 
     /// Expand an agent's expression to a list of commands.
     pub fn expand_agent(&self, agent: &Agent) -> Result<Vec<Command>, ExpandError> {
+        let step_count = Cell::new(0usize);
+        let truncated = Cell::new(false);
+
         let mut ctx = ExpandContext {
             macros: HashMap::new(),
             functions: HashMap::new(),
             depth: 0,
+            limits: &self.limits,
+            step_count: &step_count,
+            truncated: &truncated,
         };
 
         // Register definitions
@@ -111,12 +137,19 @@ impl Expander {
         params: &HashMap<char, ParamValue>,
     ) -> Result<Vec<Command>, ExpandError> {
         // Check recursion depth
-        if ctx.depth > self.max_depth {
+        if ctx.depth > ctx.limits.max_depth {
             return Err(ExpandError::max_recursion_depth(expr.span()));
         }
 
+        // Check if already truncated
+        if ctx.truncated.get() {
+            return Ok(vec![]);
+        }
+
         match expr {
-            Expr::Primitive(p, _) => Ok(vec![Command::from(*p)]),
+            Expr::Primitive(p, span) => {
+                self.add_command_with_limit(Command::from(*p), ctx, *span)
+            }
 
             Expr::Ident(name, span) => {
                 // Look up macro
@@ -125,6 +158,9 @@ impl Expander {
                         macros: ctx.macros.clone(),
                         functions: ctx.functions.clone(),
                         depth: ctx.depth + 1,
+                        limits: ctx.limits,
+                        step_count: ctx.step_count,
+                        truncated: ctx.truncated,
                     };
                     self.expand_expr(body, &new_ctx, params)
                 } else {
@@ -136,7 +172,18 @@ impl Expander {
                 // Look up parameter value
                 if let Some(value) = params.get(name) {
                     match value {
-                        ParamValue::Commands(cmds) => Ok(cmds.clone()),
+                        ParamValue::Commands(cmds) => {
+                            // Add each command with limit checking
+                            let mut result = Vec::new();
+                            for cmd in cmds {
+                                let added = self.add_command_with_limit(*cmd, ctx, *span)?;
+                                result.extend(added);
+                                if ctx.truncated.get() {
+                                    break;
+                                }
+                            }
+                            Ok(result)
+                        }
                         ParamValue::Number(_) => {
                             // Numeric param used as command - this is an error
                             Err(ExpandError::new(
@@ -170,6 +217,9 @@ impl Expander {
                         macros: ctx.macros.clone(),
                         functions: ctx.functions.clone(),
                         depth: ctx.depth + 1,
+                        limits: ctx.limits,
+                        step_count: ctx.step_count,
+                        truncated: ctx.truncated,
                     };
                     self.expand_expr(body, &new_ctx, &new_params)
                 } else {
@@ -203,6 +253,9 @@ impl Expander {
                         macros: ctx.macros.clone(),
                         functions: ctx.functions.clone(),
                         depth: ctx.depth + 1,
+                        limits: ctx.limits,
+                        step_count: ctx.step_count,
+                        truncated: ctx.truncated,
                     };
                     self.expand_expr(body, &new_ctx, &new_params)
                 } else {
@@ -213,12 +266,41 @@ impl Expander {
             Expr::Sequence(exprs) => {
                 let mut result = Vec::new();
                 for e in exprs {
+                    if ctx.truncated.get() {
+                        break;
+                    }
                     let cmds = self.expand_expr(e, ctx, params)?;
                     result.extend(cmds);
                 }
                 Ok(result)
             }
         }
+    }
+
+    /// Add a command with step limit checking.
+    /// Returns the command in a vec if successful, or error if limit exceeded.
+    fn add_command_with_limit(
+        &self,
+        cmd: Command,
+        ctx: &ExpandContext,
+        span: Span,
+    ) -> Result<Vec<Command>, ExpandError> {
+        let current = ctx.step_count.get();
+
+        if current >= ctx.limits.max_step {
+            match ctx.limits.on_limit {
+                OnLimitBehavior::Error => {
+                    return Err(ExpandError::max_step_exceeded(ctx.limits.max_step, span));
+                }
+                OnLimitBehavior::Truncate => {
+                    ctx.truncated.set(true);
+                    return Ok(vec![]);
+                }
+            }
+        }
+
+        ctx.step_count.set(current + 1);
+        Ok(vec![cmd])
     }
 
     /// Evaluate a function argument to a ParamValue.
@@ -267,7 +349,8 @@ mod tests {
     fn expand_source(source: &str) -> Result<Vec<Command>, ExpandError> {
         let mut parser = Parser::new(source).expect("Parser creation failed");
         let program = parser.parse_program().expect("Parsing failed");
-        let expander = Expander::new();
+        // Use limits from parsed program (includes directives like MAX_STEP)
+        let expander = Expander::with_limits(program.limits);
         expander.expand_agent(&program.agents[0])
     }
 
@@ -487,5 +570,59 @@ mod tests {
         // Note: This tests if the parser handles numeric expressions in arguments
         let cmds = expand_source("0: a(X):sa(X-1) a(4)").unwrap();
         assert_eq!(cmds.len(), 4);
+    }
+
+    // MAX_STEP limit tests
+
+    #[test]
+    fn test_max_step_error() {
+        // MAX_STEP=3 with recursion producing 10 commands should error
+        let result = expand_source("MAX_STEP=3\n0: a(X):sa(X-1) a(10)");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("E004") || err.message.contains("MAX_STEP"));
+    }
+
+    #[test]
+    fn test_max_step_truncate() {
+        // MAX_STEP=3 with ON_LIMIT=TRUNCATE should return 3 commands
+        let result = expand_source("MAX_STEP=3\nON_LIMIT=TRUNCATE\n0: a(X):sa(X-1) a(10)");
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 3);
+    }
+
+    #[test]
+    fn test_max_step_exact_boundary() {
+        // MAX_STEP=5 with a(5) should succeed with exactly 5 commands
+        let result = expand_source("MAX_STEP=5\n0: a(X):sa(X-1) a(5)");
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 5);
+    }
+
+    #[test]
+    fn test_max_step_one_over_boundary() {
+        // MAX_STEP=5 with a(6) should error (6th command exceeds limit)
+        let result = expand_source("MAX_STEP=5\n0: a(X):sa(X-1) a(6)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_max_step_truncate_one_over() {
+        // MAX_STEP=5 ON_LIMIT=TRUNCATE with a(6) should return 5 commands
+        let result = expand_source("MAX_STEP=5\nON_LIMIT=TRUNCATE\n0: a(X):sa(X-1) a(6)");
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 5);
+    }
+
+    #[test]
+    fn test_default_max_step() {
+        // Default MAX_STEP (1,000,000) should allow small expansions
+        let result = expand_source("0: a(X):sa(X-1) a(100)");
+        assert!(result.is_ok());
+        let cmds = result.unwrap();
+        assert_eq!(cmds.len(), 100);
     }
 }

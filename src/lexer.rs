@@ -11,6 +11,8 @@ pub struct Lexer<'a> {
     line: usize,
     column: usize,
     at_line_start: bool,
+    /// Track if we just saw '=' (for directive value recognition)
+    after_equals: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -23,6 +25,7 @@ impl<'a> Lexer<'a> {
             line: 1,
             column: 1,
             at_line_start: true,
+            after_equals: false,
         }
     }
 
@@ -113,6 +116,11 @@ impl<'a> Lexer<'a> {
                 self.at_line_start = false;
                 TokenKind::Minus
             }
+            '=' => {
+                self.at_line_start = false;
+                self.after_equals = true;
+                TokenKind::Equals
+            }
 
             // Identifiers (lowercase letters except s, r, l)
             c if c.is_ascii_lowercase() => {
@@ -120,15 +128,68 @@ impl<'a> Lexer<'a> {
                 TokenKind::Ident(c)
             }
 
-            // Parameters (uppercase letters)
+            // Parameters (uppercase letters) or Directives (at line start)
             c if c.is_ascii_uppercase() => {
+                let was_at_line_start = self.at_line_start;
+                let was_after_equals = self.after_equals;
                 self.at_line_start = false;
-                TokenKind::Param(c)
+                self.after_equals = false;
+
+                // At line start, check if this could be a directive
+                // Directives are multi-char uppercase words with underscores: MAX_STEP, MAX_DEPTH, MAX_MEMORY, ON_LIMIT
+                let next_char = self.peek_char();
+                let could_be_directive = was_at_line_start
+                    && (next_char == Some('_')
+                        || next_char.map(|c| c.is_ascii_uppercase()).unwrap_or(false));
+
+                if could_be_directive {
+                    // Try to read a full directive name (with underscores)
+                    let word = self.read_uppercase_word(c);
+
+                    // Check if it's a known directive
+                    match word.as_str() {
+                        "MAX_STEP" | "MAX_DEPTH" | "MAX_MEMORY" | "ON_LIMIT" => {
+                            TokenKind::Directive(word)
+                        }
+                        _ => {
+                            // Unknown directive - E009
+                            return Err(LexerError::new(
+                                format!("Unknown directive '{}' (E009)", word),
+                                start_line,
+                                start_column,
+                            ));
+                        }
+                    }
+                } else if was_after_equals {
+                    // After '=', check if this could be ERROR or TRUNCATE
+                    let next_char = self.peek_char();
+                    if next_char.map(|c| c.is_ascii_uppercase()).unwrap_or(false) {
+                        let word = self.read_uppercase_word(c);
+                        match word.as_str() {
+                            "ERROR" | "TRUNCATE" => TokenKind::DirectiveValue(word),
+                            _ => {
+                                // Unknown directive value - E009
+                                return Err(LexerError::new(
+                                    format!("Unknown directive value '{}' (E009)", word),
+                                    start_line,
+                                    start_column,
+                                ));
+                            }
+                        }
+                    } else {
+                        // Single uppercase letter after '=' - this is unusual but treat as param
+                        TokenKind::Param(c)
+                    }
+                } else {
+                    // Single uppercase letter - parameter
+                    TokenKind::Param(c)
+                }
             }
 
             // Numbers (agent IDs at line start, otherwise Number literals)
             c if c.is_ascii_digit() => {
                 let was_at_line_start = self.at_line_start;
+                self.after_equals = false;
                 self.at_line_start = false;
                 let num = self.read_number(c);
                 // At line start, it's an agent ID (e.g., "0: srl")
@@ -248,6 +309,24 @@ impl<'a> Lexer<'a> {
         }
 
         num
+    }
+
+    /// Read an uppercase word (for directives) starting with the given character.
+    /// Includes uppercase letters and underscores.
+    fn read_uppercase_word(&mut self, first_char: char) -> String {
+        let mut word = String::new();
+        word.push(first_char);
+
+        while let Some(&(_, ch)) = self.chars.peek() {
+            if ch.is_ascii_uppercase() || ch == '_' {
+                self.advance();
+                word.push(ch);
+            } else {
+                break;
+            }
+        }
+
+        word
     }
 }
 
@@ -506,5 +585,67 @@ mod tests {
         assert_eq!(token.kind, TokenKind::Left);
         assert_eq!(token.span.start, 2);
         assert_eq!(token.span.end, 3);
+    }
+
+    #[test]
+    fn test_directive_max_step() {
+        let mut lexer = Lexer::new("MAX_STEP=1000");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("MAX_STEP".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Number(1000));
+    }
+
+    #[test]
+    fn test_directive_on_limit_error() {
+        let mut lexer = Lexer::new("ON_LIMIT=ERROR");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("ON_LIMIT".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::DirectiveValue("ERROR".to_string())
+        );
+    }
+
+    #[test]
+    fn test_directive_on_limit_truncate() {
+        let mut lexer = Lexer::new("ON_LIMIT=TRUNCATE");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("ON_LIMIT".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::DirectiveValue("TRUNCATE".to_string())
+        );
+    }
+
+    #[test]
+    fn test_unknown_directive_error() {
+        let mut lexer = Lexer::new("MAX_STEPS=100");
+        let result = lexer.next_token();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.message.contains("E009"));
+    }
+
+    #[test]
+    fn test_directive_with_code() {
+        let mut lexer = Lexer::new("MAX_STEP=100\n0: srl");
+        assert_eq!(
+            lexer.next_token().unwrap().kind,
+            TokenKind::Directive("MAX_STEP".to_string())
+        );
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Equals);
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Number(100));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Newline);
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::AgentId(0));
+        assert_eq!(lexer.next_token().unwrap().kind, TokenKind::Colon);
     }
 }

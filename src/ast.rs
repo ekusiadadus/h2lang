@@ -2,6 +2,67 @@
 
 use crate::token::Span;
 
+// =============================================================================
+// Directives and Limits
+// =============================================================================
+
+/// Behavior when execution limit is exceeded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OnLimitBehavior {
+    /// Return error and stop (default)
+    #[default]
+    Error,
+    /// Truncate output and return what was generated so far
+    Truncate,
+}
+
+/// Execution limit configuration.
+#[derive(Debug, Clone)]
+pub struct LimitConfig {
+    /// Maximum number of generated commands (s/r/l)
+    /// Default: 1,000,000
+    pub max_step: usize,
+    /// Maximum recursion depth
+    /// Default: 100
+    pub max_depth: usize,
+    /// Maximum memory usage during expansion (in bytes)
+    /// Default: 1,000,000
+    pub max_memory: usize,
+    /// Behavior when limit is exceeded
+    pub on_limit: OnLimitBehavior,
+}
+
+impl Default for LimitConfig {
+    fn default() -> Self {
+        Self {
+            max_step: 1_000_000,
+            max_depth: 100,
+            max_memory: 1_000_000,
+            on_limit: OnLimitBehavior::Error,
+        }
+    }
+}
+
+/// A single directive (e.g., MAX_STEP=1000).
+#[derive(Debug, Clone)]
+pub struct Directive {
+    /// Directive name (e.g., "MAX_STEP")
+    pub name: String,
+    /// Directive value (number or string like "ERROR"/"TRUNCATE")
+    pub value: DirectiveValue,
+    /// Source location
+    pub span: Span,
+}
+
+/// Value of a directive.
+#[derive(Debug, Clone)]
+pub enum DirectiveValue {
+    /// Numeric value
+    Number(i64),
+    /// String value (for ON_LIMIT)
+    String(String),
+}
+
 /// Basic command primitive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Primitive {
@@ -167,6 +228,10 @@ pub struct Agent {
 /// Program (collection of agents).
 #[derive(Debug, Clone)]
 pub struct Program {
+    /// Directives (e.g., MAX_STEP=1000)
+    pub directives: Vec<Directive>,
+    /// Execution limit configuration (derived from directives)
+    pub limits: LimitConfig,
     /// List of agents
     pub agents: Vec<Agent>,
 }

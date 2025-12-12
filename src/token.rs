@@ -188,6 +188,19 @@ pub enum TokenKind {
     /// `-` - Minus (numeric expression).
     Minus,
 
+    /// `=` - Equals (directive assignment).
+    Equals,
+
+    // -------------------------------------------------------------------------
+    // Directives
+    // -------------------------------------------------------------------------
+
+    /// Directive keyword (e.g., MAX_STEP, MAX_DEPTH, MAX_MEMORY, ON_LIMIT)
+    Directive(String),
+
+    /// Directive value identifier (ERROR, TRUNCATE)
+    DirectiveValue(String),
+
     // -------------------------------------------------------------------------
     // Control Tokens
     // -------------------------------------------------------------------------
@@ -229,6 +242,9 @@ impl TokenKind {
             TokenKind::Comma => "','",
             TokenKind::Plus => "'+'",
             TokenKind::Minus => "'-'",
+            TokenKind::Equals => "'='",
+            TokenKind::Directive(_) => "directive",
+            TokenKind::DirectiveValue(_) => "directive value",
             TokenKind::Space => "space",
             TokenKind::Newline => "newline",
             TokenKind::Eof => "end of input",
@@ -286,6 +302,9 @@ impl fmt::Display for TokenKind {
             TokenKind::Comma => write!(f, ","),
             TokenKind::Plus => write!(f, "+"),
             TokenKind::Minus => write!(f, "-"),
+            TokenKind::Equals => write!(f, "="),
+            TokenKind::Directive(s) => write!(f, "{}", s),
+            TokenKind::DirectiveValue(s) => write!(f, "{}", s),
             TokenKind::Space => write!(f, " "),
             TokenKind::Newline => write!(f, "\\n"),
             TokenKind::Eof => write!(f, "EOF"),

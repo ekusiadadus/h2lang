@@ -396,7 +396,8 @@ fn compile_internal(source: &str) -> CompileResult {
     };
 
     // Phase 2: Expand macros and functions for each agent
-    let expander = Expander::new();
+    // Use limits from parsed directives
+    let expander = Expander::with_limits(program.limits.clone());
     let mut expanded_agents = Vec::new();
 
     for agent in &program.agents {

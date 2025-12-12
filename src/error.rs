@@ -145,6 +145,15 @@ impl ExpandError {
             column: span.column,
         }
     }
+
+    /// E004: MAX_STEP limit exceeded
+    pub fn max_step_exceeded(limit: usize, span: Span) -> Self {
+        Self {
+            message: format!("[E004] MAX_STEP limit ({}) exceeded", limit),
+            line: span.line,
+            column: span.column,
+        }
+    }
 }
 
 impl fmt::Display for ExpandError {
