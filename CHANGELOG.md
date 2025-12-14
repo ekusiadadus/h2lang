@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2025-12-14
+
+### Fixed
+
+- **WASM API returns plain objects** - All WASM functions now return plain JavaScript objects instead of `Map` instances
+  - `result.status` and `result.bytes` now work correctly (previously required `result.get('status')`)
+  - `JSON.stringify(result)` now returns proper JSON (previously returned `{}`)
+  - Uses `serde_wasm_bindgen::Serializer::json_compatible()` for serialization
+
 ## [0.5.3] - 2025-12-14
 
 ### Added
@@ -180,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.4...HEAD
+[0.5.4]: https://github.com/ekusiadadus/h2lang/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/ekusiadadus/h2lang/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/ekusiadadus/h2lang/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ekusiadadus/h2lang/compare/v0.5.0...v0.5.1

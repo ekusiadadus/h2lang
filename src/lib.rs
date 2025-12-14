@@ -99,7 +99,7 @@
 //! - [HOJ GitHub Repository](https://github.com/quolc/hoj)
 //! - [Codeforces Discussion](https://codeforces.com/blog/entry/5579)
 
-#![doc(html_root_url = "https://docs.rs/h2lang/0.5.3")]
+#![doc(html_root_url = "https://docs.rs/h2lang/0.5.4")]
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // TODO: Re-enable once all public APIs are documented
@@ -119,7 +119,16 @@ use expander::Expander;
 use output::{CompileResult, CompiledProgram};
 use parser::Parser;
 use scheduler::Scheduler;
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
+
+/// Helper function to serialize values to JsValue using JSON-compatible format.
+/// This ensures that JavaScript receives plain objects instead of Map instances.
+fn to_js_value<T: Serialize>(value: &T) -> JsValue {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .unwrap_or(JsValue::NULL)
+}
 
 // =============================================================================
 // WebAssembly API
@@ -179,7 +188,7 @@ pub fn init() {
 #[wasm_bindgen]
 pub fn compile(source: &str) -> JsValue {
     let result = compile_internal(source);
-    serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+    to_js_value(&result)
 }
 
 /// Validates H2 source code without full compilation.
@@ -212,22 +221,20 @@ pub fn validate(source: &str) -> JsValue {
     let mut parser = match Parser::new(source) {
         Ok(p) => p,
         Err(e) => {
-            return serde_wasm_bindgen::to_value(&CompileResult::Error {
+            return to_js_value(&CompileResult::Error {
                 errors: vec![e.into()],
             })
-            .unwrap_or(JsValue::NULL)
         }
     };
 
     match parser.parse_program() {
         Ok(_) => {
             let result = serde_json::json!({ "status": "ok", "valid": true });
-            serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+            to_js_value(&result)
         }
-        Err(e) => serde_wasm_bindgen::to_value(&CompileResult::Error {
+        Err(e) => to_js_value(&CompileResult::Error {
             errors: vec![e.into()],
-        })
-        .unwrap_or(JsValue::NULL),
+        }),
     }
 }
 
@@ -260,7 +267,7 @@ pub fn get_step(program_json: &str, step: usize) -> JsValue {
     match result {
         Ok(CompileResult::Success { program }) => {
             if let Some(entry) = program.timeline.get(step) {
-                serde_wasm_bindgen::to_value(entry).unwrap_or(JsValue::NULL)
+                to_js_value(entry)
             } else {
                 JsValue::NULL
             }
@@ -326,11 +333,11 @@ pub fn count_bytes(source: &str) -> JsValue {
     match count_bytes_internal(source) {
         Ok(bytes) => {
             let result = serde_json::json!({ "status": "success", "bytes": bytes });
-            serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+            to_js_value(&result)
         }
         Err(e) => {
             let result = serde_json::json!({ "status": "error", "message": e.to_string() });
-            serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+            to_js_value(&result)
         }
     }
 }
