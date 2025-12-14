@@ -99,7 +99,7 @@
 //! - [HOJ GitHub Repository](https://github.com/quolc/hoj)
 //! - [Codeforces Discussion](https://codeforces.com/blog/entry/5579)
 
-#![doc(html_root_url = "https://docs.rs/h2lang/0.5.2")]
+#![doc(html_root_url = "https://docs.rs/h2lang/0.5.3")]
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 // TODO: Re-enable once all public APIs are documented
@@ -285,6 +285,56 @@ pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Counts bytes in H2 source code according to HOJ golf scoring rules.
+///
+/// This function calculates the byte count for code golf scoring,
+/// following the HOJ (Herbert Online Judge) specification:
+///
+/// - Each letter (a-z, A-Z) counts as 1 byte
+/// - Each numeric literal counts as 1 byte (regardless of digit count)
+/// - Punctuation (`:`, `(`, `)`, `,`, `+`, `-`) does NOT count
+/// - Whitespace (space, tab, newline) does NOT count
+/// - Comments (`#` or `//` to end of line) do NOT count
+/// - Directives (`MAX_STEP`, etc.) do NOT count
+/// - Agent ID prefix (`0:`, `1:`, etc.) does NOT count
+///
+/// **Important**: This function validates syntax first. If the source code
+/// has syntax errors, it returns an error result instead of a byte count.
+///
+/// # Arguments
+///
+/// * `source` - The H2 source code to count
+///
+/// # Returns
+///
+/// A [`JsValue`] containing:
+/// - On success: `{ "status": "success", "bytes": <count> }`
+/// - On error: `{ "status": "error", "message": "<error message>" }`
+///
+/// # Example (JavaScript)
+///
+/// ```javascript
+/// const result = count_bytes("a:sa a");
+/// if (result.status === "success") {
+///     console.log(result.bytes); // 4
+/// } else {
+///     console.error(result.message);
+/// }
+/// ```
+#[wasm_bindgen]
+pub fn count_bytes(source: &str) -> JsValue {
+    match count_bytes_internal(source) {
+        Ok(bytes) => {
+            let result = serde_json::json!({ "status": "success", "bytes": bytes });
+            serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+        }
+        Err(e) => {
+            let result = serde_json::json!({ "status": "error", "message": e.to_string() });
+            serde_wasm_bindgen::to_value(&result).unwrap_or(JsValue::NULL)
+        }
+    }
+}
+
 // =============================================================================
 // Native Rust API
 // =============================================================================
@@ -364,6 +414,119 @@ pub fn version() -> String {
 /// - **Expansion errors**: Undefined macros/functions, infinite recursion
 pub fn compile_native(source: &str) -> CompileResult {
     compile_internal(source)
+}
+
+/// Counts bytes in H2 source code according to HOJ golf scoring rules (native Rust API).
+///
+/// This function validates syntax first, then counts bytes according to HOJ specification.
+/// Returns an error if the source code has syntax errors.
+///
+/// # Arguments
+///
+/// * `source` - The H2 source code to count
+///
+/// # Returns
+///
+/// - `Ok(u32)` - The byte count if syntax is valid
+/// - `Err(String)` - Error message if syntax is invalid
+///
+/// # Examples
+///
+/// ```
+/// use h2lang::count_bytes_native;
+///
+/// // Valid syntax: returns byte count
+/// assert_eq!(count_bytes_native("a:sa a"), Ok(4));
+/// assert_eq!(count_bytes_native("f(X):sa(X-1) f(10)"), Ok(8));
+///
+/// // Type conflict error (E010): X used as both CmdSeq and Int
+/// assert!(count_bytes_native("f(X):Xf(X-1)").is_err());
+/// ```
+pub fn count_bytes_native(source: &str) -> Result<u32, String> {
+    count_bytes_internal(source)
+}
+
+/// Internal byte counting implementation with syntax validation.
+///
+/// First validates the source code by parsing it. If parsing succeeds,
+/// counts tokens according to HOJ specification:
+/// - Letters (a-z, A-Z): 1 byte each
+/// - Numbers: 1 byte per numeric literal
+/// - Everything else: 0 bytes
+///
+/// Returns an error if the source code has syntax errors.
+fn count_bytes_internal(source: &str) -> Result<u32, String> {
+    use lexer::Lexer;
+    use token::TokenKind;
+
+    // Phase 1: Validate syntax by parsing
+    let mut parser = match Parser::new(source) {
+        Ok(p) => p,
+        Err(e) => return Err(format!("Lexer error: {}", e.message)),
+    };
+
+    match parser.parse_program() {
+        Ok(_) => {} // Syntax is valid, continue to counting
+        Err(e) => return Err(format!("Parse error: {}", e.message)),
+    }
+
+    // Phase 2: Count tokens (re-lex the source)
+    let mut lexer = Lexer::new(source);
+    let mut count: u32 = 0;
+    let mut in_directive = false; // Track if we're in a directive line
+
+    loop {
+        let token = match lexer.next_token() {
+            Ok(t) => t,
+            Err(e) => return Err(format!("Lexer error during counting: {}", e.message)),
+        };
+
+        match token.kind {
+            // Directive starts - skip until newline
+            TokenKind::Directive(_) => {
+                in_directive = true;
+            }
+
+            // Newline resets directive mode
+            TokenKind::Newline => {
+                in_directive = false;
+            }
+
+            // Skip tokens in directive lines
+            _ if in_directive => {}
+
+            // Count letters (1 byte each)
+            TokenKind::Ident(_) => count += 1,
+            TokenKind::Param(_) => count += 1,
+            TokenKind::Straight => count += 1,
+            TokenKind::Right => count += 1,
+            TokenKind::Left => count += 1,
+
+            // Count numbers (1 byte per literal, regardless of digit count)
+            TokenKind::Number(_) => count += 1,
+
+            // Do NOT count:
+            // - AgentId (agent prefix like "0:")
+            // - Punctuation (Colon, LParen, RParen, Comma, Plus, Minus, Equals)
+            // - Whitespace (Space)
+            // - Directive values
+            TokenKind::AgentId(_) => {}
+            TokenKind::Colon => {}
+            TokenKind::LParen => {}
+            TokenKind::RParen => {}
+            TokenKind::Comma => {}
+            TokenKind::Plus => {}
+            TokenKind::Minus => {}
+            TokenKind::Equals => {}
+            TokenKind::Space => {}
+            TokenKind::DirectiveValue(_) => {}
+
+            // End of input
+            TokenKind::Eof => break,
+        }
+    }
+
+    Ok(count)
 }
 
 /// Internal compilation implementation shared by WASM and native APIs.

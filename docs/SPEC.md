@@ -1,4 +1,4 @@
-# H2 Language Specification v0.5.0
+# H2 Language Specification v0.5.3
 
 ## 1. Overview
 
@@ -423,3 +423,93 @@ ExpandError::type_conflict(param: char, span: Span) -> Self {
     // E010: Parameter 'X' used as both CmdSeq and Int
 }
 ```
+
+---
+
+## Appendix B: Byte Count Specification (HOJ Golf Scoring)
+
+### B.1 Overview
+
+HOJ (Herbert Online Judge) uses a byte count metric for code golf scoring.
+This specification defines how H2 Language counts bytes for HOJ compatibility.
+
+### B.2 Counting Rules
+
+| Element | Count | Examples |
+|---------|-------|----------|
+| Lowercase letters (a-z) | 1 byte each | `s` → 1, `abc` → 3 |
+| Uppercase letters (A-Z) | 1 byte each | `X` → 1, `XY` → 2 |
+| Numeric literals | 1 byte per literal | `12` → 1, `3` → 1 |
+| Colon `:` | 0 bytes | Not counted |
+| Parentheses `( )` | 0 bytes | Not counted |
+| Comma `,` | 0 bytes | Not counted |
+| Plus/Minus `+ -` | 0 bytes | Not counted |
+| Whitespace (space, tab) | 0 bytes | Not counted |
+| Newline (`\n`, `\r\n`) | 0 bytes | Not counted |
+| Comments (`#`, `//`) | 0 bytes | Entire comment ignored |
+| Directives | 0 bytes | `MAX_STEP=100` not counted |
+| Agent ID prefix | 0 bytes | `0:` not counted |
+
+### B.3 Examples
+
+```
+Input: a:sa a
+Count: a + s + a + a = 4 bytes
+       ^   ^  ^   ^
+       def cmd def call
+
+Input: f(X):sa(X-1) f(10)
+Count: f + X + s + a + X + 1 + f + 10 = 8 bytes
+       ^   ^   ^   ^   ^   ^   ^   ^^
+       def prm cmd call prm num call num
+
+Input: 0: x:ss xrx
+Count: x + s + s + x + r + x = 6 bytes
+       (agent id "0:" is not counted)
+
+Input: f(X,Y):XYf(X-1,Y) f(3,sr)
+Count: f + X + Y + X + Y + f + X + 1 + Y + f + 3 + s + r = 13 bytes
+```
+
+### B.4 Formal Definition
+
+```
+byte_count(source) = sum of:
+  - count(letter) for each letter in [a-zA-Z]
+  - count(number) for each numeric literal (contiguous digits = 1)
+
+Excluded:
+  - All punctuation: : ( ) , + - = _
+  - All whitespace: space, tab, newline
+  - All comments: from # or // to end of line
+  - Directive lines: lines starting with directive names
+  - Agent ID prefix: NUMBER followed immediately by :
+```
+
+### B.5 API
+
+#### Native Rust
+
+```rust
+use h2lang::count_bytes;
+
+let bytes = count_bytes("a:sa a");
+assert_eq!(bytes, 4);
+```
+
+#### WebAssembly (JavaScript)
+
+```javascript
+import { count_bytes } from 'h2lang';
+
+const bytes = count_bytes("f(X):sa(X-1) f(10)");
+console.log(bytes); // 8
+```
+
+### B.6 Implementation Notes
+
+1. **Lexer-based counting**: Use the lexer to tokenize, then count relevant tokens.
+2. **Number handling**: Each `NUMBER` token counts as 1, regardless of digit count.
+3. **Comment stripping**: Comments are removed during lexing, not counted.
+4. **Directive handling**: Directive lines are parsed separately and excluded.
+5. **Agent ID**: The `AGENT_ID` token (number + colon) is not counted.

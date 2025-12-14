@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2025-12-14
+
+### Added
+
+- **HOJ byte count function** - `count_bytes` / `count_bytes_native` for code golf scoring
+  - Counts letters (a-z, A-Z) as 1 byte each
+  - Counts numeric literals as 1 byte each (regardless of digit count)
+  - Ignores punctuation (`:`, `()`, `,`, `+-`)
+  - Ignores whitespace, comments, directives, and agent IDs
+  - Validates syntax before counting (returns error for invalid code)
+- **Byte count specification** - See `docs/SPEC.md` Appendix B for HOJ compatibility rules
+- **45 byte count tests** - Comprehensive coverage of HOJ golf scoring patterns
+- **AI Operation Rules** - `docs/RULE.md` added for development guidelines
+
+### API
+
+- **WASM**: `count_bytes(source)` returns `{ status: "success", bytes: N }` or `{ status: "error", message: "..." }`
+- **Rust**: `count_bytes_native(source)` returns `Result<u32, String>`
+
 ## [0.5.2] - 2025-12-12
 
 ### Fixed
@@ -161,7 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized WASM build with LTO enabled
 - TypeScript type definitions included
 
-[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/ekusiadadus/h2lang/compare/v0.5.3...HEAD
+[0.5.3]: https://github.com/ekusiadadus/h2lang/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/ekusiadadus/h2lang/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/ekusiadadus/h2lang/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/ekusiadadus/h2lang/compare/v0.3.0...v0.5.0
 [0.3.0]: https://github.com/ekusiadadus/h2lang/compare/v0.2.1...v0.3.0
